@@ -2,7 +2,7 @@ module github.com/ayn2op/discordo
 
 go 1.26.0
 
-replace github.com/ayn2op/tview => ../tview
+replace github.com/ayn2op/tview => github.com/eyalmazuz/tview v0.0.0-20260313100618-15564f1e9df9
 
 // replace github.com/diamondburned/arikawa/v3 => ../arikawa
 
@@ -28,6 +28,8 @@ require (
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/yuin/goldmark v1.7.16
 	github.com/zalando/go-keyring v0.2.6
+	golang.org/x/image v0.36.0
+	golang.org/x/sys v0.42.0
 )
 
 require (
@@ -54,9 +56,7 @@ require (
 	github.com/twmb/murmur3 v1.1.8 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/exp/shiny v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
