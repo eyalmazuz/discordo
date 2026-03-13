@@ -184,11 +184,17 @@ func (gt *guildsTree) unreadStyle(indication ningen.UnreadIndication) tcell.Styl
 }
 
 func (gt *guildsTree) getGuildNodeStyle(guildID discord.GuildID) tcell.Style {
+	if gt.chat == nil || gt.chat.state == nil {
+		return tcell.StyleDefault
+	}
 	indication := gt.chat.state.GuildIsUnread(guildID, ningen.GuildUnreadOpts{UnreadOpts: ningen.UnreadOpts{IncludeMutedCategories: true}})
 	return gt.unreadStyle(indication)
 }
 
 func (gt *guildsTree) getChannelNodeStyle(channelID discord.ChannelID) tcell.Style {
+	if gt.chat == nil || gt.chat.state == nil {
+		return tcell.StyleDefault
+	}
 	indication := gt.chat.state.ChannelIsUnread(channelID, ningen.UnreadOpts{IncludeMutedCategories: true})
 	return gt.unreadStyle(indication)
 }
@@ -205,11 +211,18 @@ func (gt *guildsTree) createGuildNode(n *tview.TreeNode, guild discord.Guild) {
 }
 
 func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Channel) {
-	if channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && channel.Type != discord.GuildCategory && !gt.chat.state.HasPermissions(channel.ID, discord.PermissionViewChannel) {
-		return
+	if gt.chat != nil && gt.chat.state != nil {
+		if channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && channel.Type != discord.GuildCategory && !gt.chat.state.HasPermissions(channel.ID, discord.PermissionViewChannel) {
+			return
+		}
 	}
 
-	channelNode := tview.NewTreeNode(ui.ChannelToString(channel, gt.cfg.Icons, gt.chat.state)).SetReference(channel.ID)
+	var state *ningen.State
+	if gt.chat != nil {
+		state = gt.chat.state
+	}
+
+	channelNode := tview.NewTreeNode(ui.ChannelToString(channel, gt.cfg.Icons, state)).SetReference(channel.ID)
 	gt.setNodeLineStyle(channelNode, gt.getChannelNodeStyle(channel.ID))
 	switch channel.Type {
 	case discord.DirectMessage:
@@ -221,6 +234,9 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 		channelNode.SetExpandable(true).SetExpanded(true)
 	case discord.GuildForum:
 		channelNode.SetIndent(gt.cfg.Theme.GuildsTree.Indents.Forum)
+		channelNode.SetExpandable(true).SetExpanded(false)
+	case discord.GuildText, discord.GuildAnnouncement:
+		channelNode.SetIndent(gt.cfg.Theme.GuildsTree.Indents.Channel)
 		channelNode.SetExpandable(true).SetExpanded(false)
 	default:
 		channelNode.SetIndent(gt.cfg.Theme.GuildsTree.Indents.Channel)
@@ -279,9 +295,38 @@ func (gt *guildsTree) createChannelNodes(node *tview.TreeNode, channels []discor
 }
 
 func (gt *guildsTree) onSelected(node *tview.TreeNode) {
-	if len(node.GetChildren()) != 0 {
-		node.SetExpanded(!node.IsExpanded())
+	ref := node.GetReference()
+	if ref == nil {
 		return
+	}
+
+	// Case 1: Forum Channels (Expansion only)
+	if cid, ok := ref.(discord.ChannelID); ok {
+		channel, err := gt.chat.state.Cabinet.Channel(cid)
+		if err == nil && channel.Type == discord.GuildForum {
+			gt.loadChildren(node)
+			node.SetExpanded(!node.IsExpanded())
+			return
+		}
+
+		// Case 2: Openable Text Channels/Threads
+		if err == nil && (channel.Type == discord.GuildText || channel.Type == discord.GuildAnnouncement ||
+			channel.Type == discord.GuildPublicThread || channel.Type == discord.GuildPrivateThread ||
+			channel.Type == discord.GuildAnnouncementThread || channel.Type == discord.DirectMessage ||
+			channel.Type == discord.GroupDM) {
+			gt.loadChannel(node, channel)
+			return
+		}
+	}
+
+	// Case 3: Container Nodes (Guilds, Categories, DMs Folder)
+	gt.loadChildren(node)
+	node.SetExpanded(!node.IsExpanded())
+}
+
+func (gt *guildsTree) loadChildren(node *tview.TreeNode) bool {
+	if len(node.GetChildren()) != 0 {
+		return true
 	}
 
 	switch ref := node.GetReference().(type) {
@@ -291,93 +336,88 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) {
 		channels, err := gt.chat.state.Cabinet.Channels(ref)
 		if err != nil {
 			slog.Error("failed to get channels", "err", err, "guild_id", ref)
-			return
+			return false
 		}
 
 		ui.SortGuildChannels(channels)
 		gt.createChannelNodes(node, channels)
-		node.Expand()
+		return true
 	case discord.ChannelID:
 		channel, err := gt.chat.state.Cabinet.Channel(ref)
 		if err != nil {
 			slog.Error("failed to get channel from state", "err", err, "channel_id", ref)
-			return
+			return false
 		}
 
-		// Handle forum channels differently - they contain threads, not direct messages
-		if channel.Type == discord.GuildForum {
-			// Get all channels from the guild - this includes active threads from GuildCreateEvent
+		// Handle thread population for channels that can have them
+		if channel.Type == discord.GuildForum || channel.Type == discord.GuildText || channel.Type == discord.GuildAnnouncement {
 			allChannels, err := gt.chat.state.Cabinet.Channels(channel.GuildID)
 			if err != nil {
-				slog.Error("failed to get channels for forum threads", "err", err, "guild_id", channel.GuildID)
-				return
+				slog.Error("failed to get channels for threads", "err", err, "guild_id", channel.GuildID)
+				return false
 			}
 
-			// Filter for threads that belong to this forum channel
-			var forumThreads []discord.Channel
 			for _, ch := range allChannels {
 				if ch.ParentID == channel.ID && (ch.Type == discord.GuildPublicThread ||
 					ch.Type == discord.GuildPrivateThread ||
 					ch.Type == discord.GuildAnnouncementThread) {
-					forumThreads = append(forumThreads, ch)
+					gt.createChannelNode(node, ch)
 				}
 			}
-
-			// Add threads as child nodes
-			for _, thread := range forumThreads {
-				gt.createChannelNode(node, thread)
-			}
-			node.Expand()
-			return
+			return true
 		}
-
-		limit := gt.cfg.MessagesLimit
-		messages, err := gt.chat.state.Messages(channel.ID, uint(limit))
-		if err != nil {
-			slog.Error("failed to get messages", "err", err, "channel_id", channel.ID, "limit", limit)
-			return
-		}
-
-		go gt.chat.state.ReadState.MarkRead(channel.ID, channel.LastMessageID)
-
-		if guildID := channel.GuildID; guildID.IsValid() {
-			gt.chat.messagesList.requestGuildMembers(guildID, messages)
-		}
-
-		gt.chat.SetSelectedChannel(channel)
-		gt.chat.clearTypers()
-		gt.chat.messageInput.stopTypingTimer()
-
-		gt.chat.messagesList.reset()
-		gt.chat.messagesList.setTitle(*channel)
-		gt.chat.messagesList.setMessages(messages)
-		gt.chat.messagesList.ScrollToEnd()
-
-		hasNoPerm := channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && !gt.chat.state.HasPermissions(channel.ID, discord.PermissionSendMessages)
-		gt.chat.messageInput.SetDisabled(hasNoPerm)
-		var text string
-		if hasNoPerm {
-			text = "You do not have permission to send messages in this channel."
-		} else {
-			text = "Message..."
-			if gt.cfg.AutoFocus {
-				gt.chat.app.SetFocus(gt.chat.messageInput)
-			}
-		}
-		gt.chat.messageInput.SetPlaceholder(tview.NewLine(tview.NewSegment(text, tcell.StyleDefault.Dim(true))))
 	case dmNode: // Direct messages folder
 		channels, err := gt.chat.state.PrivateChannels()
 		if err != nil {
 			slog.Error("failed to get private channels", "err", err)
-			return
+			return false
 		}
 
 		ui.SortPrivateChannels(channels)
 		for _, c := range channels {
 			gt.createChannelNode(node, c)
 		}
-		node.Expand()
+		return true
 	}
+
+	return false
+}
+
+func (gt *guildsTree) loadChannel(node *tview.TreeNode, channel *discord.Channel) {
+	limit := gt.cfg.MessagesLimit
+	messages, err := gt.chat.state.Messages(channel.ID, uint(limit))
+	if err != nil {
+		slog.Error("failed to get messages", "err", err, "channel_id", channel.ID, "limit", limit)
+		return
+	}
+
+	go gt.chat.state.ReadState.MarkRead(channel.ID, channel.LastMessageID)
+
+	if guildID := channel.GuildID; guildID.IsValid() {
+		gt.chat.messagesList.requestGuildMembers(guildID, messages)
+	}
+
+	gt.chat.SetSelectedChannel(channel)
+	gt.chat.clearTypers()
+	gt.chat.messageInput.stopTypingTimer()
+
+	gt.chat.messagesList.reset()
+	gt.chat.messagesList.setTitle(*channel)
+	gt.chat.messagesList.setMessages(messages)
+	gt.chat.messagesList.ScrollToEnd()
+
+	hasNoPerm := channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && !gt.chat.state.HasPermissions(channel.ID, discord.PermissionSendMessages)
+	gt.chat.messageInput.SetDisabled(hasNoPerm)
+	var text string
+	if hasNoPerm {
+		text = "You do not have permission to send messages in this channel."
+	} else {
+		text = "Message..."
+		if gt.cfg.AutoFocus {
+			gt.chat.app.SetFocus(gt.chat.messageInput)
+		}
+	}
+	gt.chat.messageInput.SetPlaceholder(tview.NewLine(tview.NewSegment(text, tcell.StyleDefault.Dim(true))))
 }
 
 func (gt *guildsTree) collapseParentNode(node *tview.TreeNode) {
@@ -417,7 +457,16 @@ func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Command {
 			gt.Move(gt.GetRowCount())
 			return redraw
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.SelectCurrent.Keybind):
-			return handler(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+			if node := gt.GetCurrentNode(); node != nil {
+				gt.onSelected(node)
+			}
+			return redraw
+		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.ToggleExpand.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == " "):
+			if node := gt.GetCurrentNode(); node != nil {
+				gt.loadChildren(node)
+				node.SetExpanded(!node.IsExpanded())
+			}
+			return redraw
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
 			gt.yankID()
 			return nil
@@ -474,12 +523,20 @@ func (gt *guildsTree) findNodeByChannelID(channelID discord.ChannelID) *tview.Tr
 		return nil
 	}
 
+	// If it's a thread, we must ensure the parent channel is expanded first
+	if channel.Type == discord.GuildPublicThread || channel.Type == discord.GuildPrivateThread || channel.Type == discord.GuildAnnouncementThread {
+		if gt.findNodeByChannelID(channel.ParentID) == nil {
+			return nil
+		}
+	}
+
 	var reference any
 	if guildID := channel.GuildID; guildID.IsValid() {
 		reference = guildID
 	} else {
 		reference = dmNode{}
 	}
+
 	if parentNode := gt.findNodeByReference(reference); parentNode != nil {
 		if len(parentNode.GetChildren()) == 0 {
 			gt.onSelected(parentNode)

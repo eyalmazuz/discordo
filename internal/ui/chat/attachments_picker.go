@@ -29,6 +29,9 @@ func newAttachmentsPicker(cfg *config.Config, chatView *Model) *attachmentsPicke
 		cfg:      cfg,
 		chatView: chatView,
 	}
+	ap.SetFocusFunc(func(p tview.Primitive) {
+		chatView.app.SetFocus(p)
+	})
 	ap.Box = ui.ConfigureBox(tview.NewBox(), &cfg.Theme)
 	ap.
 		SetBlurFunc(nil).
@@ -42,12 +45,13 @@ func newAttachmentsPicker(cfg *config.Config, chatView *Model) *attachmentsPicke
 	ap.SetSelectedFunc(ap.onSelected)
 	ap.SetCancelFunc(ap.close)
 	ap.SetKeyMap(&picker.KeyMap{
-		Cancel: cfg.Keybinds.Picker.Cancel.Keybind,
-		Up:     cfg.Keybinds.Picker.Up.Keybind,
-		Down:   cfg.Keybinds.Picker.Down.Keybind,
-		Top:    cfg.Keybinds.Picker.Top.Keybind,
-		Bottom: cfg.Keybinds.Picker.Bottom.Keybind,
-		Select: cfg.Keybinds.Picker.Select.Keybind,
+		Cancel:      cfg.Keybinds.Picker.Cancel.Keybind,
+		ToggleFocus: cfg.Keybinds.Picker.ToggleFocus.Keybind,
+		Up:          cfg.Keybinds.Picker.Up.Keybind,
+		Down:        cfg.Keybinds.Picker.Down.Keybind,
+		Top:         cfg.Keybinds.Picker.Top.Keybind,
+		Bottom:      cfg.Keybinds.Picker.Bottom.Keybind,
+		Select:      cfg.Keybinds.Picker.Select.Keybind,
 	})
 	ap.SetScrollBarVisibility(cfg.Theme.ScrollBar.Visibility.ScrollBarVisibility)
 	ap.SetScrollBar(tview.NewScrollBar().

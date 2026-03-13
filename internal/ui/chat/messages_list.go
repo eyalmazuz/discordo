@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/consts"
+	httpkg "github.com/ayn2op/discordo/internal/http"
+	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
 	"github.com/ayn2op/tview"
@@ -46,15 +49,26 @@ type messagesList struct {
 	chatView *Model
 	messages []discord.Message
 	// rows is the virtual list model rendered by tview (message rows +
-	// date-separator rows). It is rebuilt lazily when rowsDirty is true.
+	// date-separator rows + image rows). It is rebuilt lazily when rowsDirty is true.
 	rows      []messagesListRow
 	rowsDirty bool
 
 	renderer *markdown.Renderer
 	// itemByID caches unselected message TextViews.
 	itemByID map[discord.MessageID]*tview.TextView
+	// imageItemByKey caches image items to avoid expensive recomputation on every draw. Key is messageID-attachmentIndex.
+	imageItemByKey map[string]*imageItem
 
 	attachmentsPicker *attachmentsPicker
+
+	imageCache *imgpkg.Cache
+	useKitty   bool
+
+	nextKittyID         uint32
+	kittyNeedsFullClear bool
+	cellW, cellH        int      // cached cell pixel dimensions for Kitty mode
+	pendingFullClear    bool     // deferred to AfterDraw
+	pendingDeletes      []uint32 // kitty IDs to delete in AfterDraw
 
 	fetchingMembers struct {
 		mu    sync.Mutex
@@ -62,6 +76,8 @@ type messagesList struct {
 		count uint
 		done  chan struct{}
 	}
+
+	lastScreen tcell.Screen
 }
 
 var _ help.KeyMap = (*messagesList)(nil)
@@ -71,21 +87,28 @@ type messagesListRowKind uint8
 const (
 	messagesListRowMessage messagesListRowKind = iota
 	messagesListRowSeparator
+	messagesListRowImage
 )
 
 type messagesListRow struct {
-	kind         messagesListRowKind
-	messageIndex int
-	timestamp    discord.Timestamp
+	kind            messagesListRowKind
+	messageIndex    int
+	attachmentIndex int
+	timestamp       discord.Timestamp
 }
 
 func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
+	useKitty := resolveKittyMode(cfg.InlineImages.Renderer)
 	ml := &messagesList{
-		List:     tview.NewList(),
-		cfg:      cfg,
-		chatView: chatView,
-		renderer: markdown.NewRenderer(cfg),
-		itemByID: make(map[discord.MessageID]*tview.TextView),
+		List:       tview.NewList(),
+		cfg:        cfg,
+		chatView:   chatView,
+		renderer:   markdown.NewRenderer(cfg),
+		itemByID:       make(map[discord.MessageID]*tview.TextView),
+		imageItemByKey: make(map[string]*imageItem),
+		imageCache: imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
+		useKitty:   useKitty,
+		nextKittyID: 1,
 	}
 	ml.attachmentsPicker = newAttachmentsPicker(cfg, chatView)
 
@@ -107,10 +130,117 @@ func (ml *messagesList) reset() {
 	ml.rows = nil
 	ml.rowsDirty = false
 	clear(ml.itemByID)
+	ml.kittyNeedsFullClear = true
 	ml.
 		Clear().
 		SetBuilder(ml.buildItem).
 		SetTitle("")
+}
+
+func (ml *messagesList) Draw(screen tcell.Screen) {
+	ml.lastScreen = screen
+	if ml.cfg.InlineImages.Enabled && ml.useKitty {
+		ml.updateCellDimensions(screen)
+		// Full clear only on channel switch / reset.
+		if ml.kittyNeedsFullClear {
+			ml.kittyNeedsFullClear = false
+			ml.pendingFullClear = true
+			for _, item := range ml.imageItemByKey {
+				item.unlockRegion(screen)
+				item.invalidateKittyPlacement()
+			}
+			clear(ml.imageItemByKey)
+			ml.nextKittyID = 1
+		}
+		// Reset per-frame tracking and propagate cell dimensions.
+		for _, item := range ml.imageItemByKey {
+			item.drawnThisFrame = false
+			item.setCellDimensions(ml.cellW, ml.cellH)
+		}
+	}
+
+	ml.List.Draw(screen)
+
+	// Collect off-screen images for deletion in AfterDraw.
+	if ml.cfg.InlineImages.Enabled && ml.useKitty {
+		for _, item := range ml.imageItemByKey {
+			if !item.drawnThisFrame && item.kittyPlaced {
+				item.unlockRegion(screen)
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+				item.invalidateKittyPlacement()
+			}
+		}
+	}
+}
+
+// AfterDraw writes all pending Kitty protocol commands to the TTY.
+// Must be called AFTER screen.Show() to avoid corrupting tcell's output.
+func (ml *messagesList) AfterDraw(screen tcell.Screen) {
+	if !ml.cfg.InlineImages.Enabled || !ml.useKitty {
+		return
+	}
+	tty, ok := screen.Tty()
+	if !ok {
+		return
+	}
+
+	// Save cursor position so we restore it after our TTY writes,
+	// keeping tcell's cursor tracking in sync.
+	fmt.Fprint(tty, "\x1b7")
+
+	// Full clear (delete all images from terminal).
+	if ml.pendingFullClear {
+		_ = imgpkg.DeleteAllKitty(tty)
+		ml.pendingFullClear = false
+	}
+
+	// Delete off-screen images.
+	for _, id := range ml.pendingDeletes {
+		_ = imgpkg.DeleteKittyByID(tty, id)
+	}
+	ml.pendingDeletes = ml.pendingDeletes[:0]
+
+	// Place on-screen images.
+	for _, item := range ml.imageItemByKey {
+		item.flushKittyPlace(tty)
+	}
+
+	// Restore cursor position.
+	fmt.Fprint(tty, "\x1b8")
+}
+
+func (ml *messagesList) updateCellDimensions(screen tcell.Screen) {
+	tty, ok := screen.Tty()
+	if !ok {
+		return
+	}
+	ws, err := tty.WindowSize()
+	if err != nil {
+		return
+	}
+	cw, ch := ws.CellDimensions()
+	if cw <= 0 || ch <= 0 {
+		return
+	}
+	if cw != ml.cellW || ch != ml.cellH {
+		ml.cellW = cw
+		ml.cellH = ch
+		// Cell dimensions changed (e.g. font size change) — invalidate all cached payloads.
+		for _, item := range ml.imageItemByKey {
+			item.kittyPayload = ""
+		}
+	}
+}
+
+func resolveKittyMode(renderer string) bool {
+	switch renderer {
+	case "kitty":
+		return true
+	case "halfblock":
+		return false
+	default: // "auto" or empty
+		return imgpkg.IsKittySupported()
+	}
 }
 
 func (ml *messagesList) setTitle(channel discord.Channel) {
@@ -129,6 +259,7 @@ func (ml *messagesList) setMessages(messages []discord.Message) {
 	// New channel payload / refetch: replace the cache wholesale to keep it in
 	// lockstep with the current message slice.
 	clear(ml.itemByID)
+	ml.kittyNeedsFullClear = true
 }
 
 func (ml *messagesList) addMessage(message discord.Message) {
@@ -174,6 +305,10 @@ func (ml *messagesList) buildItem(index int, cursor int) tview.ListItem {
 		return ml.buildSeparatorItem(row.timestamp)
 	}
 
+	if row.kind == messagesListRowImage {
+		return ml.buildImageItem(row)
+	}
+
 	message := ml.messages[row.messageIndex]
 	if index == cursor {
 		return tview.NewTextView().
@@ -207,6 +342,34 @@ func (ml *messagesList) buildSeparatorItem(ts discord.Timestamp) *tview.TextView
 		SetWrap(false).
 		SetWordWrap(false).
 		SetLines(builder.Finish())
+}
+
+func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
+	msg := ml.messages[row.messageIndex]
+	a := msg.Attachments[row.attachmentIndex]
+	url := string(a.URL)
+	key := fmt.Sprintf("%s-%d", msg.ID, row.attachmentIndex)
+
+	if item, ok := ml.imageItemByKey[key]; ok {
+		return item
+	}
+
+	cfg := ml.cfg.InlineImages
+	kittyID := ml.nextKittyID
+	ml.nextKittyID++
+
+	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.useKitty, kittyID, ml.GetInnerRect)
+	if ml.useKitty && ml.cellW > 0 {
+		item.setCellDimensions(ml.cellW, ml.cellH)
+	}
+	ml.imageItemByKey[key] = item
+
+	// Request async download if not already cached.
+	ml.imageCache.Request(url, cfg.MaxFileSize, a.Size, func() {
+		ml.chatView.app.QueueUpdateDraw(func() {})
+	})
+
+	return item
 }
 
 func (ml *messagesList) drawDateSeparator(builder *tview.LineBuilder, ts discord.Timestamp, baseStyle tcell.Style) {
@@ -248,6 +411,18 @@ func (ml *messagesList) rebuildRows() {
 			kind:         messagesListRowMessage,
 			messageIndex: i,
 		})
+
+		if ml.cfg.InlineImages.Enabled {
+			for j, a := range ml.messages[i].Attachments {
+				if strings.HasPrefix(a.ContentType, "image/") {
+					rows = append(rows, messagesListRow{
+						kind:            messagesListRowImage,
+						messageIndex:    i,
+						attachmentIndex: j,
+					})
+				}
+			}
+		}
 	}
 
 	ml.rows = rows
@@ -488,6 +663,10 @@ func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message d
 
 	attachmentStyle := ui.MergeStyle(baseStyle, ml.cfg.Theme.MessagesList.AttachmentStyle.Style)
 	for _, a := range message.Attachments {
+		if ml.cfg.InlineImages.Enabled && strings.HasPrefix(a.ContentType, "image/") {
+			continue // Hide text and URL for rendered images
+		}
+
 		builder.NewLine()
 		if ml.cfg.ShowAttachmentLinks {
 			builder.Write(a.Filename+":\n"+a.URL, attachmentStyle)
@@ -517,7 +696,7 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 	wrapWidth := max(innerWidth-prefixWidth, 1)
 
 	for _, embed := range message.Embeds {
-		lines := embedLines(embed, contentURLs)
+		lines := embedLines(embed, contentURLs, ml.cfg.InlineImages.Enabled)
 		if len(lines) == 0 {
 			continue
 		}
@@ -674,7 +853,7 @@ type embedLineDedupKey struct {
 	text string
 }
 
-func embedLines(embed discord.Embed, contentURLs map[string]struct{}) []embedLine {
+func embedLines(embed discord.Embed, contentURLs map[string]struct{}, inlineImagesEnabled bool) []embedLine {
 	lines := make([]embedLine, 0, 8)
 	seen := make(map[embedLineDedupKey]struct{}, 8)
 
@@ -740,10 +919,14 @@ func embedLines(embed discord.Embed, contentURLs map[string]struct{}) []embedLin
 		appendURL(embed.URL)
 	}
 	if embed.Image != nil {
-		appendURL(embed.Image.URL)
+		if !inlineImagesEnabled {
+			appendURL(embed.Image.URL)
+		}
 	}
 	if embed.Video != nil {
-		appendURL(embed.Video.URL)
+		if !inlineImagesEnabled {
+			appendURL(embed.Video.URL)
+		}
 	}
 
 	return lines
@@ -839,6 +1022,24 @@ func (ml *messagesList) selectedMessage() (*discord.Message, error) {
 
 func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
+	case *tview.MouseEvent:
+		if event.Action != tview.MouseLeftClick {
+			break
+		}
+
+		x, y := event.Position()
+		if !ml.InRect(x, y) {
+			break
+		}
+
+		if ml.lastScreen != nil {
+			_, style, _ := ml.lastScreen.Get(x, y)
+			_, url := style.GetUrl()
+			if url != "" {
+				go ml.openURL(url)
+				return tview.RedrawCommand{}
+			}
+		}
 	case *tview.KeyEvent:
 		redraw := tview.RedrawCommand{}
 		switch {
@@ -881,7 +1082,7 @@ func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankURL.Keybind):
 			ml.yankURL()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Open.Keybind):
+		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Open.Keybind) || event.Key() == tcell.KeyEnter:
 			ml.open()
 			return redraw
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Reply.Keybind):

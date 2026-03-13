@@ -22,6 +22,9 @@ var _ help.KeyMap = (*channelsPicker)(nil)
 
 func newChannelsPicker(cfg *config.Config, chatView *Model) *channelsPicker {
 	cp := &channelsPicker{picker.New(), chatView}
+	cp.SetFocusFunc(func(p tview.Primitive) {
+		chatView.app.SetFocus(p)
+	})
 	cp.Box = ui.ConfigureBox(tview.NewBox(), &cfg.Theme)
 	// When a child of tview.Flex is focused, tview.Flex itself is not reported as focused. Instead, the focused child (picker) is considered focused. Therefore, we manually set the active border style on the picker to ensure it displays the correct focused appearance.
 	cp.
@@ -40,12 +43,13 @@ func newChannelsPicker(cfg *config.Config, chatView *Model) *channelsPicker {
 		SetThumbStyle(cfg.Theme.ScrollBar.ThumbStyle.Style).
 		SetGlyphSet(cfg.Theme.ScrollBar.GlyphSet.GlyphSet))
 	cp.SetKeyMap(&picker.KeyMap{
-		Cancel: cfg.Keybinds.Picker.Cancel.Keybind,
-		Up:     cfg.Keybinds.Picker.Up.Keybind,
-		Down:   cfg.Keybinds.Picker.Down.Keybind,
-		Top:    cfg.Keybinds.Picker.Top.Keybind,
-		Bottom: cfg.Keybinds.Picker.Bottom.Keybind,
-		Select: cfg.Keybinds.Picker.Select.Keybind,
+		Cancel:      cfg.Keybinds.Picker.Cancel.Keybind,
+		ToggleFocus: cfg.Keybinds.Picker.ToggleFocus.Keybind,
+		Up:          cfg.Keybinds.Picker.Up.Keybind,
+		Down:        cfg.Keybinds.Picker.Down.Keybind,
+		Top:         cfg.Keybinds.Picker.Top.Keybind,
+		Bottom:      cfg.Keybinds.Picker.Bottom.Keybind,
+		Select:      cfg.Keybinds.Picker.Select.Keybind,
 	})
 	return cp
 }
@@ -80,6 +84,9 @@ func (cp *channelsPicker) onSelected(item picker.Item) {
 func (cp *channelsPicker) update() {
 	cp.ClearItems()
 	state := cp.chatView.state
+	if state == nil {
+		return
+	}
 
 	privateChannels, err := state.Cabinet.PrivateChannels()
 	if err != nil {

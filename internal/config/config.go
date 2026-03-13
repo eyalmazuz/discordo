@@ -84,6 +84,14 @@ type (
 		Markers SidebarMarkersConfig `toml:"markers"`
 	}
 
+	InlineImages struct {
+		Enabled     bool   `toml:"enabled"`
+		MaxWidth    int    `toml:"max_width"`
+		MaxHeight   int    `toml:"max_height"`
+		MaxFileSize int64  `toml:"max_file_size"`
+		Renderer    string `toml:"renderer"`
+	}
+
 	Config struct {
 		AutoFocus bool   `toml:"auto_focus"`
 		Mouse     bool   `toml:"mouse"`
@@ -106,7 +114,8 @@ type (
 		TypingIndicator TypingIndicator `toml:"typing_indicator"`
 		Sidebar         SidebarConfig   `toml:"sidebar"`
 
-		Icons Icons `toml:"icons"`
+		Icons        Icons        `toml:"icons"`
+		InlineImages InlineImages `toml:"inline_images"`
 
 		Keybinds Keybinds `toml:"keybinds"`
 		Theme    Theme    `toml:"theme"`

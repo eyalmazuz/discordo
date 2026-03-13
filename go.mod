@@ -2,7 +2,7 @@ module github.com/ayn2op/discordo
 
 go 1.26.0
 
-// replace github.com/ayn2op/tview => ../tview
+replace github.com/ayn2op/tview => ../tview
 
 // replace github.com/diamondburned/arikawa/v3 => ../arikawa
 

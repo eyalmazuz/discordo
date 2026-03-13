@@ -63,6 +63,18 @@ send = true
 # Whether to receive typing status or not.
 receive = true
 
+[inline_images]
+# Whether to render image attachments inline. Requires a true-color terminal.
+enabled = false
+# Maximum dimensions in cells for rendered images.
+max_width = 60
+max_height = 20
+# Maximum file size in bytes to download (0 = unlimited). Default 10 MB.
+max_file_size = 10485760
+# Renderer: "auto", "kitty", or "halfblock".
+# "auto" uses Kitty graphics when supported, otherwise half-block characters.
+renderer = "auto"
+
 [sidebar.markers]
 expanded = "▾ "
 collapsed = "▸ "

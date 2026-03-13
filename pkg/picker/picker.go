@@ -19,6 +19,7 @@ type Picker struct {
 
 	onSelected SelectedFunc
 	onCancel   CancelFunc
+	setFocus   func(p tview.Primitive)
 	keyMap     *KeyMap
 
 	items    Items
@@ -83,6 +84,10 @@ func (p *Picker) setFilteredItems(filtered Items) {
 
 func (p *Picker) SetKeyMap(keyMap *KeyMap) {
 	p.keyMap = keyMap
+}
+
+func (p *Picker) SetFocusFunc(f func(p tview.Primitive)) {
+	p.setFocus = f
 }
 
 // SetScrollBarVisibility sets when the picker's list scrollBar is rendered.
@@ -154,6 +159,15 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 		redraw := tview.RedrawCommand{}
 		if p.keyMap != nil {
 			switch {
+			case keybind.Matches(event, p.keyMap.ToggleFocus):
+				if p.setFocus != nil {
+					if p.input.HasFocus() {
+						p.setFocus(p.list)
+					} else {
+						p.setFocus(p.input)
+					}
+				}
+				return redraw
 			case keybind.Matches(event, p.keyMap.Up):
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 				return redraw
@@ -173,6 +187,23 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 				if p.onCancel != nil {
 					p.onCancel()
 				}
+				return redraw
+			}
+		}
+
+		if p.list.HasFocus() && event.Key() == tcell.KeyRune {
+			switch event.Str() {
+			case "j":
+				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+				return redraw
+			case "k":
+				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+				return redraw
+			case "g":
+				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+				return redraw
+			case "G":
+				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 				return redraw
 			}
 		}

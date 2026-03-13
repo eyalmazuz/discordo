@@ -63,13 +63,15 @@ type SelectionKeybinds struct {
 
 type PickerKeybinds struct {
 	NavigationKeybinds
-	Select Keybind `toml:"select"`
-	Cancel Keybind `toml:"cancel"`
+	Select      Keybind `toml:"select"`
+	Cancel      Keybind `toml:"cancel"`
+	ToggleFocus Keybind `toml:"toggle_focus"`
 }
 
 type GuildsTreeKeybinds struct {
 	NavigationKeybinds
 	SelectCurrent Keybind `toml:"select_current"`
+	ToggleExpand  Keybind `toml:"toggle_expand"`
 	YankID        Keybind `toml:"yank_id"`
 
 	CollapseParentNode Keybind `toml:"collapse_parent_node"`
@@ -141,8 +143,9 @@ func defaultPickerKeybinds() PickerKeybinds {
 			Top:    newKeybind("home", "top"),
 			Bottom: newKeybind("end", "bottom"),
 		},
-		Cancel: newKeybind("esc", "cancel"),
-		Select: newKeybind("enter", "sel"),
+		Cancel:      newKeybind("esc", "cancel"),
+		Select:      newKeybind("enter", "sel"),
+		ToggleFocus: newKeybind("tab", "focus"),
 	}
 }
 
@@ -159,6 +162,7 @@ func defaultGuildsTreeKeybinds() GuildsTreeKeybinds {
 	return GuildsTreeKeybinds{
 		NavigationKeybinds: defaultNavigationKeybinds(),
 		SelectCurrent:      newKeybind("enter", "sel"),
+		ToggleExpand:       newKeybind(" ", "expand"),
 		YankID:             newKeybind("i", "copy id"),
 		CollapseParentNode: newKeybind("-", "collapse"),
 		MoveToParentNode:   newKeybind("p", "parent"),

@@ -77,6 +77,14 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
 
 	v.SetBackgroundLayerStyle(v.cfg.Theme.Dialog.BackgroundStyle.Style)
 	v.buildLayout()
+
+	// Register post-Show callback for Kitty image protocol writes.
+	// Writing to the TTY during Draw() (before Show()) corrupts tcell's
+	// output; this callback runs after screen.Show() completes.
+	app.SetAfterDrawFunc(func(screen tcell.Screen) {
+		v.messagesList.AfterDraw(screen)
+	})
+
 	return v
 }
 
