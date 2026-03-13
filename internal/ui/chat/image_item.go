@@ -5,6 +5,7 @@ import (
 	"image"
 	"io"
 	"log/slog"
+	"time"
 
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/tview"
@@ -35,32 +36,37 @@ type imageItem struct {
 	kittyRows    int
 
 	// Kitty placement tracking.
-	kittyID        uint32 // unique Kitty protocol image ID
-	lastX, lastY   int    // last drawn screen position
-	kittyVisibleRows int  // number of cells displayed vertically in the crop
-	kittyCropY     int    // crop start Y (in pixels)
-	kittyCropH     int    // crop height (in pixels)
-	kittyPlaced    bool   // true if currently placed on screen
-	kittyUploaded  bool   // true if the payload was transmitted to memory
-	drawnThisFrame bool   // reset each frame by messagesList
+	kittyID          uint32 // unique Kitty protocol image ID
+	lastX, lastY     int    // last drawn screen position
+	kittyVisibleRows int    // number of cells displayed vertically in the crop
+	kittyCropY       int    // crop start Y (in pixels)
+	kittyCropH       int    // crop height (in pixels)
+	kittyPlaced      bool   // true if currently placed on screen
+	kittyUploaded    bool   // true if the payload was transmitted to memory
+	drawnThisFrame   bool   // reset each frame by messagesList
 
 	// pendingPlace is set during Draw to defer the actual TTY write
 	// to AfterDraw (after screen.Show completes).
 	pendingPlace bool
 
+	lastFrameIndex int
+	requestRedraw  func(time.Duration)
+
 	getViewport func() (int, int, int, int)
 }
 
-func newImageItem(cache *imgpkg.Cache, url string, maxW, maxH int, useKitty bool, kittyID uint32, getViewport func() (int, int, int, int)) *imageItem {
+func newImageItem(cache *imgpkg.Cache, url string, maxW, maxH int, useKitty bool, kittyID uint32, getViewport func() (int, int, int, int), requestRedraw func(time.Duration)) *imageItem {
 	return &imageItem{
-		Box:         tview.NewBox(),
-		cache:       cache,
-		url:         url,
-		maxW:        maxW,
-		maxH:        maxH,
-		useKitty:    useKitty,
-		kittyID:     kittyID,
-		getViewport: getViewport,
+		Box:            tview.NewBox(),
+		cache:          cache,
+		url:            url,
+		maxW:           maxW,
+		maxH:           maxH,
+		useKitty:       useKitty,
+		kittyID:        kittyID,
+		lastFrameIndex: -1,
+		requestRedraw:  requestRedraw,
+		getViewport:    getViewport,
 	}
 }
 
@@ -136,7 +142,11 @@ func (it *imageItem) Height(width int) int {
 }
 
 func (it *imageItem) Draw(screen tcell.Screen) {
-	it.Box.DrawForSubclass(screen, it)
+	isEmote := it.maxW <= 2 && it.maxH == 1
+	if !isEmote {
+		it.Box.DrawForSubclass(screen, it)
+	}
+
 	x, y, w, h := it.GetInnerRect()
 	if w <= 0 || h <= 0 {
 		return
@@ -145,14 +155,26 @@ func (it *imageItem) Draw(screen tcell.Screen) {
 	displayW := min(w, it.maxW)
 	displayH := min(h, it.maxH)
 
-	img, ok := it.cache.Get(it.url)
+	now := time.Now()
+	img, frameIndex, nextDelay, animated, ok := it.cache.GetFrame(it.url, now)
 	if !ok {
 		if it.cache.Failed(it.url) {
-			tview.Print(screen, "[image failed]", x, y, w, tview.AlignmentLeft, tcell.ColorRed)
+			if !isEmote {
+				tview.Print(screen, "[image failed]", x, y, w, tview.AlignmentLeft, tcell.ColorRed)
+			}
 		} else {
-			tview.Print(screen, "[loading image...]", x, y, w, tview.AlignmentLeft, tcell.ColorDimGray)
+			if !isEmote {
+				tview.Print(screen, "[loading image...]", x, y, w, tview.AlignmentLeft, tcell.ColorDimGray)
+			} else {
+				// Small placeholder for emote
+				screen.SetContent(x, y, '…', nil, tcell.StyleDefault.Foreground(tcell.ColorDimGray))
+			}
 		}
 		return
+	}
+	it.setFrame(screen, frameIndex)
+	if animated && nextDelay > 0 && it.requestRedraw != nil {
+		it.requestRedraw(nextDelay)
 	}
 
 	if it.useKitty {
@@ -162,7 +184,26 @@ func (it *imageItem) Draw(screen tcell.Screen) {
 	}
 }
 
+func (it *imageItem) setFrame(screen tcell.Screen, frameIndex int) {
+	if frameIndex < 0 || frameIndex == it.lastFrameIndex {
+		return
+	}
+
+	if it.kittyPlaced {
+		it.unlockRegion(screen)
+	}
+
+	it.lastFrameIndex = frameIndex
+	it.renderedLines = nil
+	it.renderedWidth = 0
+	it.kittyPayload = ""
+	it.kittyUploaded = false
+	it.kittyPlaced = false
+	it.pendingPlace = false
+}
+
 func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h int) {
+	isEmote := it.maxW <= 2 && it.maxH == 1
 	if !it.initted {
 		it.initCellDimensions(screen)
 	}
@@ -173,8 +214,9 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 		return
 	}
 
-	// Use it.maxH instead of the potentially clipped 'h' so the image doesn't shrink during scroll.
-	cols, rows := it.actualCellSize(img, w, it.maxH)
+	// Determine visual rows based strictly on the caller's provided 'h'.
+	// This ensures we don't draw outside the space the list has allocated.
+	cols, rows := it.actualCellSize(img, w, h)
 
 	var listY, listH int
 	if it.getViewport != nil {
@@ -192,6 +234,13 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 	// Skip placement if completely outside the available list region
 	if visibleRows <= 0 {
 		return
+	}
+
+	// For non-emote images, clear the background to remove ghost text (like "holy").
+	if !isEmote {
+		for i := 0; i < visibleRows; i++ {
+			screen.SetContent(x, visibleTop+i, ' ', nil, tcell.StyleDefault)
+		}
 	}
 
 	// Calculate how many rows are cut off from the top
@@ -212,15 +261,17 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 	}
 
 	// Cache the expensive resize+PNG+base64 step. This payload is the FULL image.
-	if it.kittyPayload == "" || it.kittyCols != cols || it.kittyRows != rows {
-		payload, err := imgpkg.EncodeKittyPayload(img, cols, rows, it.cellW, it.cellH)
+	// Note: We use it.maxH for the payload size so the full image is stored in terminal memory.
+	fullCols, fullRows := it.actualCellSize(img, w, it.maxH)
+	if it.kittyPayload == "" || it.kittyCols != fullCols || it.kittyRows != fullRows {
+		payload, err := imgpkg.EncodeKittyPayload(img, fullCols, fullRows, it.cellW, it.cellH)
 		if err != nil {
 			slog.Error("failed to encode kitty payload", "url", it.url, "err", err)
 			return
 		}
 		it.kittyPayload = payload
-		it.kittyCols = cols
-		it.kittyRows = rows
+		it.kittyCols = fullCols
+		it.kittyRows = fullRows
 		it.kittyUploaded = false
 	}
 
@@ -229,7 +280,7 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 	it.kittyCropH = cropHPixels
 
 	// Lock the visible region so tcell's Show() skips these cells.
-	screen.LockRegion(x, visibleTop, cols, visibleRows, true)
+	screen.LockRegion(x, visibleTop, fullCols, visibleRows, true)
 
 	// Defer the actual TTY write to AfterDraw (after screen.Show).
 	it.lastX = x
@@ -262,7 +313,7 @@ func (it *imageItem) flushKittyPlace(tty io.Writer) {
 		_ = imgpkg.DeleteKittyPlacement(tty, it.kittyID)
 		it.kittyUploaded = true
 	}
-	
+
 	_ = imgpkg.PlaceKittyCropped(tty, it.kittyID, it.kittyCols, it.kittyVisibleRows, 0, it.kittyCropY, it.kittyCols*it.cellW, it.kittyCropH)
 }
 

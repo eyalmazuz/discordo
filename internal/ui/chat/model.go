@@ -23,6 +23,8 @@ const (
 	flexLayerName            = "flex"
 	mentionsListLayerName    = "mentionsList"
 	attachmentsListLayerName = "attachmentsList"
+	reactionPickerLayerName  = "reactionPicker"
+	messageSearchLayerName   = "messageSearch"
 	confirmModalLayerName    = "confirmModal"
 	channelsPickerLayerName  = "channelsPicker"
 )
@@ -38,6 +40,7 @@ type Model struct {
 	messagesList   *messagesList
 	messageInput   *messageInput
 	channelsPicker *channelsPicker
+	messageSearch  *messageSearchPopup
 
 	selectedChannel   *discord.Channel
 	selectedChannelMu sync.RWMutex
@@ -73,6 +76,7 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
 	v.messagesList = newMessagesList(cfg, v)
 	v.messageInput = newMessageInput(cfg, v)
 	v.channelsPicker = newChannelsPicker(cfg, v)
+	v.messageSearch = newMessageSearchPopup(cfg, v, v.messagesList)
 	v.channelsPicker.SetCancelFunc(v.closePicker)
 
 	v.SetBackgroundLayerStyle(v.cfg.Theme.Dialog.BackgroundStyle.Style)
@@ -83,9 +87,21 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
 	// output; this callback runs after screen.Show() completes.
 	app.SetAfterDrawFunc(func(screen tcell.Screen) {
 		v.messagesList.AfterDraw(screen)
+		if v.GetVisible(reactionPickerLayerName) && v.messagesList != nil && v.messagesList.reactionPicker != nil {
+			v.messagesList.reactionPicker.AfterDraw(screen)
+		}
 	})
 
 	return v
+}
+
+func (v *Model) hasPopupOverlay() bool {
+	return v.GetVisible(mentionsListLayerName) ||
+		v.GetVisible(attachmentsListLayerName) ||
+		v.GetVisible(reactionPickerLayerName) ||
+		v.GetVisible(messageSearchLayerName) ||
+		v.GetVisible(confirmModalLayerName) ||
+		v.GetVisible(channelsPickerLayerName)
 }
 
 func (v *Model) SelectedChannel() *discord.Channel {
@@ -144,6 +160,35 @@ func (v *Model) openPicker() {
 func (v *Model) closePicker() {
 	v.RemoveLayer(channelsPickerLayerName)
 	v.channelsPicker.Update()
+}
+
+func (v *Model) openMessageSearch() {
+	selected := v.SelectedChannel()
+	if selected == nil || v.messageSearch == nil {
+		return
+	}
+
+	if v.GetVisible(messageSearchLayerName) {
+		v.messageSearch.FocusInput()
+		return
+	}
+	if v.GetVisible(attachmentsListLayerName) ||
+		v.GetVisible(reactionPickerLayerName) ||
+		v.GetVisible(confirmModalLayerName) ||
+		v.GetVisible(channelsPickerLayerName) {
+		return
+	}
+
+	v.messageInput.removeMentionsList()
+	v.messageSearch.Prepare(*selected, v.app.GetFocus())
+	v.AddLayer(
+		ui.Centered(v.messageSearch, v.cfg.Picker.Width, v.cfg.Picker.Height),
+		layers.WithName(messageSearchLayerName),
+		layers.WithResize(true),
+		layers.WithVisible(true),
+		layers.WithOverlay(),
+	).SendToFront(messageSearchLayerName)
+	v.messageSearch.FocusInput()
 }
 
 func (v *Model) toggleGuildsTree() {
@@ -265,6 +310,9 @@ func (v *Model) HandleEvent(event tcell.Event) tview.Command {
 			return tview.BatchCommand{v.closeState(), v.logout()}
 		case keybind.Matches(event, v.cfg.Keybinds.ToggleGuildsTree.Keybind):
 			v.toggleGuildsTree()
+			return redraw
+		case keybind.Matches(event, v.cfg.Keybinds.ToggleMessageSearch.Keybind):
+			v.openMessageSearch()
 			return redraw
 		case keybind.Matches(event, v.cfg.Keybinds.ToggleChannelsPicker.Keybind):
 			v.togglePicker()

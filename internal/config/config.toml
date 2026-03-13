@@ -96,6 +96,7 @@ guild_store = "s-"
 # Esc: Reset message selection or close the channel selection popup.
 [keybinds]
 toggle_help = "ctrl+."
+toggle_message_search = "ctrl+f"
 focus_guilds_tree = "ctrl+g"
 focus_messages_list = "ctrl+t"
 focus_message_input = "ctrl+i"
@@ -148,6 +149,8 @@ select_reply = "s"
 reply = "R"
 # Reply (with mention) to the selected message.
 reply_mention = "r"
+# React to the selected message.
+react = "+"
 cancel = "esc"
 edit = "e"
 delete = "D"

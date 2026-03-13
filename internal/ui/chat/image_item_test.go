@@ -2,56 +2,38 @@ package chat
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"net/http"
 	"testing"
 
 	imgpkg "github.com/ayn2op/discordo/internal/image"
-	"github.com/gdamore/tcell/v3"
 )
 
-type mockScreen struct {
-	tcell.Screen
-	content map[string]rune
-}
-
-func (m *mockScreen) SetContent(x int, y int, primary rune, combining []rune, style tcell.Style) {
-	if m.content == nil {
-		m.content = make(map[string]rune)
-	}
-	m.content[string(rune(x))+","+string(rune(y))] = primary
-}
-
-func (m *mockScreen) LockRegion(x, y, width, height int, lock bool) {}
-
-func (m *mockScreen) Tty() (tcell.Tty, bool) {
-	return nil, false
-}
-
-func setupMockImageItem(useKitty bool, viewportY, viewportH int) (*mockScreen, *imageItem, image.Image) {
-	screen := &mockScreen{}
+func setupMockImageItem(useKitty bool, viewportY, viewportH int) (*MockScreen, *imageItem, image.Image) {
+	screen := &MockScreen{}
 	cache := imgpkg.NewCache(http.DefaultClient)
 
 	getViewport := func() (int, int, int, int) {
 		return 0, viewportY, 100, viewportH
 	}
 
-	item := newImageItem(cache, "http://example.com/image.png", 50, 50, useKitty, 1, getViewport)
+	item := newImageItem(cache, "http://example.com/image.png", 50, 50, useKitty, 1, getViewport, nil)
 	item.cellW = 10
 	item.cellH = 20
 	item.initted = true
 	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
-	
+
 	return screen, item, img
 }
 
 func TestImageItem_Kitty_FullVisibility(t *testing.T) {
 	screen, item, img := setupMockImageItem(true, 10, 20)
-	
+
 	// y=15, rows=5. Ends at 20. Viewport is 10-30.
 	item.drawnThisFrame = false
-	item.drawKitty(screen, img, 0, 15, 10, 5) 
-	
+	item.drawKitty(screen, img, 0, 15, 10, 5)
+
 	if !item.drawnThisFrame {
 		t.Errorf("Expected fully visible image to be drawn")
 	}
@@ -68,7 +50,7 @@ func TestImageItem_Kitty_ScrollUp_TopCrop(t *testing.T) {
 
 	// y=8, rows=5. Ends at 13. Viewport is 10-30. Top 2 rows cut off.
 	item.drawKitty(screen, img, 0, 8, 10, 5)
-	
+
 	if !item.drawnThisFrame {
 		t.Errorf("Expected partially visible top-scrolled image to be drawn")
 	}
@@ -85,7 +67,7 @@ func TestImageItem_Kitty_ScrollDown_BottomCrop(t *testing.T) {
 
 	// y=28, rows=5. Ends at 33. Viewport is 10-30. Bottom 3 rows cut off.
 	item.drawKitty(screen, img, 0, 28, 10, 5)
-	
+
 	if !item.drawnThisFrame {
 		t.Errorf("Expected partially visible bottom-scrolled image to be drawn")
 	}
@@ -119,15 +101,15 @@ func TestImageItem_Kitty_StateIntegrity_NoInfiniteUpload(t *testing.T) {
 	// Frame 1: Full visible
 	item.drawKitty(screen, img, 0, 15, 10, 5)
 	item.kittyUploaded = true // simulate flush
-	
+
 	// Frame 2: Scroll up, 1 row cut off
 	item.drawKitty(screen, img, 0, 9, 10, 5)
-	
+
 	// Verify it did NOT reset kittyUploaded
 	if !item.kittyUploaded {
 		t.Errorf("Scrolling should not trigger a re-upload of the payload")
 	}
-	
+
 	// Verify it kept the original payload row dimensions intact
 	if item.kittyRows != 5 {
 		t.Errorf("Expected kittyRows to remain 5, got %d", item.kittyRows)
@@ -139,20 +121,20 @@ func TestImageItem_Kitty_StateIntegrity_NoInfiniteUpload(t *testing.T) {
 
 func TestImageItem_FlushKittyPlace_Output(t *testing.T) {
 	_, item, img := setupMockImageItem(true, 10, 20)
-	screen := &mockScreen{}
-	
+	screen := &MockScreen{}
+
 	item.drawKitty(screen, img, 0, 8, 10, 5) // y=8 -> visibleTop=10, 3 visible rows
-	
+
 	var buf bytes.Buffer
 	item.flushKittyPlace(&buf)
-	
+
 	out := buf.String()
-	
+
 	// Must contain transmit chunk (since it wasn't uploaded yet)
 	if !bytes.Contains([]byte(out), []byte("a=t")) {
 		t.Errorf("Flush should upload the image using a=t. Got: %s", out)
 	}
-	
+
 	// Must contain placement chunk for the crop
 	// c=10, r=3 (visible rows), x=0, y=40 (2 rows cut off = 40px), w=100 (10*10), h=60 (3*20)
 	expectedCrop := "a=p,i=1,c=10,r=3,x=0,y=40,w=100,h=60"
@@ -166,17 +148,15 @@ func TestImageItem_Halfblock_Boundary(t *testing.T) {
 
 	item.drawHalfBlock(screen, img, 0, 8, 10, 10)
 
-	if len(screen.content) == 0 {
+	if len(screen.Content) == 0 {
 		t.Errorf("Halfblock should have rendered visible rows")
 	}
 
-	for key := range screen.content {
+	for key := range screen.Content {
 		var y int
-		for i, r := range key {
-			if r == ',' {
-				y = int(key[i+1:][0])
-				break
-			}
+		_, err := fmt.Sscanf(key, "%*d,%d", &y)
+		if err != nil {
+			continue
 		}
 		if y < 10 || y >= 30 {
 			t.Errorf("Halfblock rendered outside viewport at y=%d", y)

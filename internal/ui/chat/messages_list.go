@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,14 +59,18 @@ type messagesList struct {
 	itemByID map[discord.MessageID]*tview.TextView
 	// imageItemByKey caches image items to avoid expensive recomputation on every draw. Key is messageID-attachmentIndex.
 	imageItemByKey map[string]*imageItem
+	// emoteItemByKey caches emoji items.
+	emoteItemByKey map[string]*imageItem
 
 	attachmentsPicker *attachmentsPicker
+	reactionPicker    *reactionPicker
 
 	imageCache *imgpkg.Cache
 	useKitty   bool
 
 	nextKittyID         uint32
 	kittyNeedsFullClear bool
+	kittySuspended      bool
 	cellW, cellH        int      // cached cell pixel dimensions for Kitty mode
 	pendingFullClear    bool     // deferred to AfterDraw
 	pendingDeletes      []uint32 // kitty IDs to delete in AfterDraw
@@ -78,6 +83,11 @@ type messagesList struct {
 	}
 
 	lastScreen tcell.Screen
+
+	animationMu    sync.Mutex
+	animationTimer *time.Timer
+	animationDue   time.Time
+	queueDraw      func()
 }
 
 var _ help.KeyMap = (*messagesList)(nil)
@@ -97,20 +107,24 @@ type messagesListRow struct {
 	timestamp       discord.Timestamp
 }
 
+const inlineEmoteWidth = 2
+
 func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
 	useKitty := resolveKittyMode(cfg.InlineImages.Renderer)
 	ml := &messagesList{
-		List:       tview.NewList(),
-		cfg:        cfg,
-		chatView:   chatView,
-		renderer:   markdown.NewRenderer(cfg),
+		List:           tview.NewList(),
+		cfg:            cfg,
+		chatView:       chatView,
+		renderer:       markdown.NewRenderer(cfg),
 		itemByID:       make(map[discord.MessageID]*tview.TextView),
 		imageItemByKey: make(map[string]*imageItem),
-		imageCache: imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
-		useKitty:   useKitty,
-		nextKittyID: 1,
+		emoteItemByKey: make(map[string]*imageItem),
+		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
+		useKitty:       useKitty,
+		nextKittyID:    1,
 	}
 	ml.attachmentsPicker = newAttachmentsPicker(cfg, chatView)
+	ml.reactionPicker = newReactionPicker(cfg, chatView, ml, ml.imageCache)
 
 	ml.Box = ui.ConfigureBox(ml.Box, &cfg.Theme)
 	ml.SetTitle("Messages")
@@ -126,11 +140,15 @@ func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
 }
 
 func (ml *messagesList) reset() {
+	ml.stopAnimatedRedraw()
 	ml.messages = nil
 	ml.rows = nil
 	ml.rowsDirty = false
 	clear(ml.itemByID)
 	ml.kittyNeedsFullClear = true
+	if ml.chatView != nil && ml.chatView.HasLayer(reactionPickerLayerName) {
+		ml.chatView.RemoveLayer(reactionPickerLayerName)
+	}
 	ml.
 		Clear().
 		SetBuilder(ml.buildItem).
@@ -139,36 +157,106 @@ func (ml *messagesList) reset() {
 
 func (ml *messagesList) Draw(screen tcell.Screen) {
 	ml.lastScreen = screen
+	overlayVisible := ml.chatView != nil && ml.chatView.hasPopupOverlay()
 	if ml.cfg.InlineImages.Enabled && ml.useKitty {
-		ml.updateCellDimensions(screen)
-		// Full clear only on channel switch / reset.
-		if ml.kittyNeedsFullClear {
-			ml.kittyNeedsFullClear = false
-			ml.pendingFullClear = true
-			for _, item := range ml.imageItemByKey {
-				item.unlockRegion(screen)
-				item.invalidateKittyPlacement()
+		ml.setKittySuspended(screen, overlayVisible)
+		if !ml.kittySuspended {
+			ml.updateCellDimensions(screen)
+			// Full clear only on channel switch / reset.
+			if ml.kittyNeedsFullClear {
+				ml.kittyNeedsFullClear = false
+				ml.pendingFullClear = true
+				for _, item := range ml.imageItemByKey {
+					item.unlockRegion(screen)
+					item.invalidateKittyPlacement()
+				}
+				for _, item := range ml.emoteItemByKey {
+					item.unlockRegion(screen)
+					item.invalidateKittyPlacement()
+				}
+				clear(ml.imageItemByKey)
+				clear(ml.emoteItemByKey)
+				ml.nextKittyID = 1
 			}
-			clear(ml.imageItemByKey)
-			ml.nextKittyID = 1
-		}
-		// Reset per-frame tracking and propagate cell dimensions.
-		for _, item := range ml.imageItemByKey {
-			item.drawnThisFrame = false
-			item.setCellDimensions(ml.cellW, ml.cellH)
+			// Reset per-frame tracking and propagate cell dimensions.
+			for _, item := range ml.imageItemByKey {
+				item.drawnThisFrame = false
+				item.setCellDimensions(ml.cellW, ml.cellH)
+			}
+			for _, item := range ml.emoteItemByKey {
+				item.drawnThisFrame = false
+				item.setCellDimensions(ml.cellW, ml.cellH)
+			}
 		}
 	}
 
 	ml.List.Draw(screen)
 
+	ml.scanAndDrawEmotes(screen)
+
 	// Collect off-screen images for deletion in AfterDraw.
-	if ml.cfg.InlineImages.Enabled && ml.useKitty {
+	if ml.cfg.InlineImages.Enabled && ml.currentUseKitty() {
 		for _, item := range ml.imageItemByKey {
 			if !item.drawnThisFrame && item.kittyPlaced {
 				item.unlockRegion(screen)
 				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
 				item.invalidateKittyPlacement()
 			}
+		}
+		for _, item := range ml.emoteItemByKey {
+			if !item.drawnThisFrame && item.kittyPlaced {
+				item.unlockRegion(screen)
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+				item.invalidateKittyPlacement()
+			}
+		}
+	}
+}
+
+func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
+	if !ml.cfg.InlineImages.Enabled {
+		return
+	}
+
+	x, y, w, h := ml.GetInnerRect()
+	for i := y; i < y+h; i++ {
+		for j := x; j < x+w; j++ {
+			_, style, _ := screen.Get(j, i)
+			_, url := style.GetUrl()
+			if !strings.HasPrefix(url, "https://cdn.discordapp.com/emojis/") {
+				continue
+			}
+
+			// Key includes coordinates so multiple instances of the same emoji don't collide.
+			key := fmt.Sprintf("%s@%d,%d", url, j, i)
+			item, ok := ml.emoteItemByKey[key]
+			if !ok {
+				item = newImageItem(ml.imageCache, url, inlineEmoteWidth, 1, ml.currentUseKitty(), ml.nextKittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+				ml.nextKittyID++
+				if ml.currentUseKitty() && ml.cellW > 0 {
+					item.setCellDimensions(ml.cellW, ml.cellH)
+				}
+				ml.emoteItemByKey[key] = item
+
+				// Trigger async download so the emote image actually loads.
+				ml.imageCache.Request(url, 0, 0, func() {
+					if ml.chatView != nil && ml.chatView.app != nil {
+						ml.chatView.app.QueueUpdateDraw(func() {})
+					}
+				})
+			}
+
+			// SetRect is needed for GetInnerRect used inside imageItem.Draw
+			item.SetRect(j, i, inlineEmoteWidth, 1)
+			item.Draw(screen)
+
+			// Custom emoji placeholders always occupy a fixed 2-cell slot. Stepping
+			// by width instead of collapsing the full URL run preserves adjacent
+			// identical emoji as separate occurrences.
+			for offset := 1; offset < inlineEmoteWidth && j+offset < x+w; offset++ {
+				screen.SetContent(j+offset, i, ' ', nil, tcell.StyleDefault)
+			}
+			j += inlineEmoteWidth - 1
 		}
 	}
 }
@@ -188,6 +276,14 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 	// keeping tcell's cursor tracking in sync.
 	fmt.Fprint(tty, "\x1b7")
 
+	if ml.kittySuspended {
+		_ = imgpkg.DeleteAllKitty(tty)
+		ml.pendingFullClear = false
+		ml.pendingDeletes = ml.pendingDeletes[:0]
+		fmt.Fprint(tty, "\x1b8")
+		return
+	}
+
 	// Full clear (delete all images from terminal).
 	if ml.pendingFullClear {
 		_ = imgpkg.DeleteAllKitty(tty)
@@ -204,9 +300,41 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 	for _, item := range ml.imageItemByKey {
 		item.flushKittyPlace(tty)
 	}
+	for _, item := range ml.emoteItemByKey {
+		item.flushKittyPlace(tty)
+	}
 
 	// Restore cursor position.
 	fmt.Fprint(tty, "\x1b8")
+}
+
+func (ml *messagesList) currentUseKitty() bool {
+	return ml.useKitty && !ml.kittySuspended
+}
+
+func (ml *messagesList) setKittySuspended(screen tcell.Screen, suspended bool) {
+	if !ml.useKitty {
+		return
+	}
+
+	ml.kittySuspended = suspended
+	useKitty := ml.currentUseKitty()
+	for _, item := range ml.imageItemByKey {
+		item.useKitty = useKitty
+		if suspended {
+			item.pendingPlace = false
+			item.unlockRegion(screen)
+			item.invalidateKittyPlacement()
+		}
+	}
+	for _, item := range ml.emoteItemByKey {
+		item.useKitty = useKitty
+		if suspended {
+			item.pendingPlace = false
+			item.unlockRegion(screen)
+			item.invalidateKittyPlacement()
+		}
+	}
 }
 
 func (ml *messagesList) updateCellDimensions(screen tcell.Screen) {
@@ -232,6 +360,70 @@ func (ml *messagesList) updateCellDimensions(screen tcell.Screen) {
 	}
 }
 
+func (ml *messagesList) scheduleAnimatedRedraw(after time.Duration) {
+	if ml == nil || !ml.canQueueDraw() {
+		return
+	}
+	if after <= 0 {
+		after = 100 * time.Millisecond
+	}
+	if after < 20*time.Millisecond {
+		after = 20 * time.Millisecond
+	}
+
+	due := time.Now().Add(after)
+	ml.animationMu.Lock()
+	if ml.animationTimer != nil && !due.Before(ml.animationDue) {
+		ml.animationMu.Unlock()
+		return
+	}
+	if ml.animationTimer != nil {
+		ml.animationTimer.Stop()
+	}
+
+	var timer *time.Timer
+	timer = time.AfterFunc(after, func() {
+		ml.animationMu.Lock()
+		if ml.animationTimer == timer {
+			ml.animationTimer = nil
+			ml.animationDue = time.Time{}
+		}
+		ml.animationMu.Unlock()
+		ml.queueAnimatedDraw()
+	})
+	ml.animationTimer = timer
+	ml.animationDue = due
+	ml.animationMu.Unlock()
+}
+
+func (ml *messagesList) stopAnimatedRedraw() {
+	ml.animationMu.Lock()
+	if ml.animationTimer != nil {
+		ml.animationTimer.Stop()
+		ml.animationTimer = nil
+	}
+	ml.animationDue = time.Time{}
+	ml.animationMu.Unlock()
+}
+
+func (ml *messagesList) canQueueDraw() bool {
+	return ml != nil && (ml.queueDraw != nil || (ml.chatView != nil && ml.chatView.app != nil))
+}
+
+func (ml *messagesList) queueAnimatedDraw() {
+	if ml == nil {
+		return
+	}
+	if ml.queueDraw != nil {
+		ml.queueDraw()
+		return
+	}
+	if ml.chatView == nil || ml.chatView.app == nil {
+		return
+	}
+	ml.chatView.app.QueueUpdateDraw(func() {})
+}
+
 func resolveKittyMode(renderer string) bool {
 	switch renderer {
 	case "kitty":
@@ -253,6 +445,7 @@ func (ml *messagesList) setTitle(channel discord.Channel) {
 }
 
 func (ml *messagesList) setMessages(messages []discord.Message) {
+	ml.stopAnimatedRedraw()
 	ml.messages = slices.Clone(messages)
 	slices.Reverse(ml.messages)
 	ml.invalidateRows()
@@ -358,8 +551,8 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 	kittyID := ml.nextKittyID
 	ml.nextKittyID++
 
-	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.useKitty, kittyID, ml.GetInnerRect)
-	if ml.useKitty && ml.cellW > 0 {
+	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.currentUseKitty(), kittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+	if ml.currentUseKitty() && ml.cellW > 0 {
 		item.setCellDimensions(ml.cellW, ml.cellH)
 	}
 	ml.imageItemByKey[key] = item
@@ -661,10 +854,15 @@ func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message d
 
 	ml.drawEmbeds(builder, message, baseStyle)
 
+	ml.drawReactions(builder, message, baseStyle)
+
 	attachmentStyle := ui.MergeStyle(baseStyle, ml.cfg.Theme.MessagesList.AttachmentStyle.Style)
 	for _, a := range message.Attachments {
 		if ml.cfg.InlineImages.Enabled && strings.HasPrefix(a.ContentType, "image/") {
-			continue // Hide text and URL for rendered images
+			// We skip the visible text but ensure the scanner finds the URL in the background.
+			// However, attachments have their own kind (messagesListRowImage) handled in buildItem.
+			// But rich embed images (like tenor) are different.
+			continue
 		}
 
 		builder.NewLine()
@@ -734,6 +932,30 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 		if len(embedContentLines) > 0 {
 			builder.AppendLines(embedContentLines)
 		}
+	}
+}
+
+func (ml *messagesList) drawReactions(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+	if len(message.Reactions) == 0 {
+		return
+	}
+
+	builder.NewLine()
+	for i, r := range message.Reactions {
+		if i > 0 {
+			builder.Write(" ", baseStyle)
+		}
+
+		reactionStyle := baseStyle.Bold(r.Me)
+		emojiStyle := ui.MergeStyle(reactionStyle, ml.cfg.Theme.MessagesList.EmojiStyle.Style)
+		if r.Emoji.ID != 0 {
+			builder.Write(markdown.CustomEmojiText(r.Emoji.Name, ml.cfg.InlineImages.Enabled), emojiStyle.Url(r.Emoji.EmojiURL()))
+		} else {
+			builder.Write(r.Emoji.Name, emojiStyle)
+		}
+
+		builder.Write(" ", reactionStyle)
+		builder.Write(strconv.Itoa(r.Count), reactionStyle)
 	}
 }
 
@@ -921,6 +1143,16 @@ func embedLines(embed discord.Embed, contentURLs map[string]struct{}, inlineImag
 	if embed.Image != nil {
 		if !inlineImagesEnabled {
 			appendURL(embed.Image.URL)
+		} else {
+			u := string(embed.Image.URL)
+			if strings.HasPrefix(u, "https://cdn.discordapp.com/emojis/") {
+				// We need a single-cell placeholder to attach the metadata to.
+				lines = append(lines, embedLine{
+					Text: " ",
+					Kind: embedLineDescription,
+					URL:  u,
+				})
+			}
 		}
 	}
 	if embed.Video != nil {
@@ -1085,6 +1317,9 @@ func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Open.Keybind) || event.Key() == tcell.KeyEnter:
 			ml.open()
 			return redraw
+		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.React.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == "+"):
+			ml.showReactionPicker()
+			return redraw
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			ml.reply(false)
 			return redraw
@@ -1214,6 +1449,40 @@ func (ml *messagesList) prependOlderMessages() int {
 	ml.messages = slices.Concat(older, ml.messages)
 	ml.invalidateRows()
 	return len(messages)
+}
+
+func (ml *messagesList) jumpToMessage(channel discord.Channel, messageID discord.MessageID) error {
+	if !channel.ID.IsValid() || !messageID.IsValid() {
+		return errors.New("invalid channel or message id")
+	}
+
+	limit := uint(max(ml.cfg.MessagesLimit, 100))
+	messages, err := ml.chatView.state.MessagesAround(channel.ID, messageID, limit)
+	if err != nil {
+		return err
+	}
+	if len(messages) == 0 {
+		return errors.New("message not found")
+	}
+
+	if guildID := channel.GuildID; guildID.IsValid() {
+		ml.requestGuildMembers(guildID, messages)
+	}
+
+	ml.chatView.SetSelectedChannel(&channel)
+	ml.chatView.clearTypers()
+	ml.setTitle(channel)
+	ml.setMessages(messages)
+
+	target := slices.IndexFunc(ml.messages, func(message discord.Message) bool {
+		return message.ID == messageID
+	})
+	if target == -1 {
+		return errors.New("message not present in loaded window")
+	}
+
+	ml.SetCursor(target)
+	return nil
 }
 
 func (ml *messagesList) yankID() {
@@ -1381,6 +1650,35 @@ func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord
 		).
 		SendToFront(attachmentsListLayerName)
 	ml.chatView.app.SetFocus(ml.attachmentsPicker)
+}
+
+func (ml *messagesList) showReactionPicker() {
+	if _, err := ml.selectedMessage(); err != nil {
+		slog.Error("failed to get selected message", "err", err)
+		return
+	}
+
+	selected := ml.chatView.SelectedChannel()
+	if selected == nil {
+		return
+	}
+
+	emojis := availableEmojisForChannel(ml.chatView.state, selected)
+	ml.reactionPicker.SetItems(emojis)
+	if ml.chatView.HasLayer(reactionPickerLayerName) {
+		ml.chatView.RemoveLayer(reactionPickerLayerName)
+	}
+
+	ml.chatView.
+		AddLayer(
+			ui.Centered(ml.reactionPicker, ml.cfg.Picker.Width, ml.cfg.Picker.Height),
+			layers.WithName(reactionPickerLayerName),
+			layers.WithResize(true),
+			layers.WithVisible(true),
+			layers.WithOverlay(),
+		).
+		SendToFront(reactionPickerLayerName)
+	ml.chatView.app.SetFocus(ml.reactionPicker)
 }
 
 func (ml *messagesList) openAttachment(attachment discord.Attachment) {
@@ -1590,6 +1888,7 @@ func (ml *messagesList) ShortHelp() []keybind.Keybind {
 		if msg.Author.ID != me.ID {
 			help = append(help, cfg.Reply.Keybind)
 		}
+		help = append(help, cfg.React.Keybind)
 	}
 
 	return help
@@ -1620,6 +1919,9 @@ func (ml *messagesList) FullHelp() [][]keybind.Keybind {
 	actions := make([]keybind.Keybind, 0, 4)
 	if canReply {
 		actions = append(actions, cfg.Reply.Keybind, cfg.ReplyMention.Keybind)
+	}
+	if selected, err := ml.selectedMessage(); err == nil && selected != nil {
+		actions = append(actions, cfg.React.Keybind)
 	}
 	if canSelectReply {
 		actions = append(actions, cfg.SelectReply.Keybind)

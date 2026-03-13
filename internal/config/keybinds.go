@@ -85,6 +85,7 @@ type MessagesListKeybinds struct {
 	SelectReply  Keybind `toml:"select_reply"`
 	Reply        Keybind `toml:"reply"`
 	ReplyMention Keybind `toml:"reply_mention"`
+	React        Keybind `toml:"react"`
 
 	Cancel        Keybind `toml:"cancel"`
 	Edit          Keybind `toml:"edit"`
@@ -115,6 +116,7 @@ type MentionsListKeybinds struct {
 type Keybinds struct {
 	ToggleGuildsTree     Keybind `toml:"toggle_guilds_tree"`
 	ToggleChannelsPicker Keybind `toml:"toggle_channels_picker"`
+	ToggleMessageSearch  Keybind `toml:"toggle_message_search"`
 	ToggleHelp           Keybind `toml:"toggle_help"`
 	Suspend              Keybind `toml:"suspend"`
 
@@ -186,6 +188,7 @@ func defaultMessagesListKeybinds() MessagesListKeybinds {
 		SelectReply:  newKeybind("s", "sel reply"),
 		Reply:        newKeybind("R", "reply"),
 		ReplyMention: newKeybind("r", "@reply"),
+		React:        newKeybind("+", "react"),
 		Cancel:       newKeybind("esc", "cancel"),
 		Edit:         newKeybind("e", "edit"),
 		Delete:       newKeybind("D", "force delete"),
@@ -227,6 +230,7 @@ func defaultKeybinds() Keybinds {
 	return Keybinds{
 		ToggleGuildsTree:     newKeybind("ctrl+b", "toggle guilds"),
 		ToggleChannelsPicker: newKeybind("ctrl+k", "channels picker"),
+		ToggleMessageSearch:  newKeybind("ctrl+f", "search"),
 		ToggleHelp:           newKeybind("ctrl+.", "help"),
 		Suspend:              newKeybind("ctrl+z", "suspend"),
 

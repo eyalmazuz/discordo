@@ -29,6 +29,15 @@ func (v *Model) activeKeyMap() help.KeyMap {
 	if v.GetVisible(channelsPickerLayerName) {
 		return v.channelsPicker
 	}
+	if v.GetVisible(messageSearchLayerName) {
+		return v.messageSearch
+	}
+	if v.GetVisible(reactionPickerLayerName) {
+		return v.messagesList.reactionPicker
+	}
+	if v.GetVisible(attachmentsListLayerName) {
+		return v.messagesList.attachmentsPicker
+	}
 
 	if v.app == nil {
 		return nil
@@ -53,6 +62,9 @@ func (v *Model) baseShortHelp() []keybind.Keybind {
 		short = append(short, cfg.FocusMessageInput.Keybind)
 	}
 	short = append(short, cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind)
+	if v.SelectedChannel() != nil {
+		short = append(short, cfg.ToggleMessageSearch.Keybind)
+	}
 	return short
 }
 
@@ -62,10 +74,14 @@ func (v *Model) baseFullHelp() [][]keybind.Keybind {
 	if !v.messageInput.GetDisabled() {
 		focus = append(focus, cfg.FocusMessageInput.Keybind)
 	}
+	toggles := []keybind.Keybind{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind}
+	if v.SelectedChannel() != nil {
+		toggles = append(toggles, cfg.ToggleMessageSearch.Keybind)
+	}
 	return [][]keybind.Keybind{
 		focus,
 		{cfg.FocusPrevious.Keybind, cfg.FocusNext.Keybind},
-		{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind},
+		toggles,
 		{cfg.Logout.Keybind},
 	}
 }

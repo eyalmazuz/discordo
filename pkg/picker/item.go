@@ -1,7 +1,11 @@
 package picker
 
+import "github.com/ayn2op/tview"
+
 type Item struct {
 	Text       string
+	Line       tview.Line
+	Builder    func(selected bool) tview.ListItem
 	FilterText string
 	Reference  any
 }

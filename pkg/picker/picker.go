@@ -63,16 +63,25 @@ func (p *Picker) setFilteredItems(filtered Items) {
 		if index < 0 || index >= len(p.filtered) {
 			return nil
 		}
+		if p.filtered[index].Builder != nil {
+			return p.filtered[index].Builder(index == cursor)
+		}
 		style := tcell.StyleDefault
 		if index == cursor {
 			style = style.Reverse(true)
+		}
+		line := p.filtered[index].Line
+		if len(line) == 0 {
+			line = tview.Line{{Text: p.filtered[index].Text, Style: style}}
+		} else if index == cursor {
+			line = reverseLine(line)
 		}
 		return tview.NewTextView().
 			SetScrollable(false).
 			SetWrap(false).
 			SetWordWrap(false).
 			SetTextStyle(style).
-			SetLines([]tview.Line{{{Text: p.filtered[index].Text, Style: style}}})
+			SetLines([]tview.Line{line})
 	})
 
 	if len(filtered) == 0 {
@@ -80,6 +89,19 @@ func (p *Picker) setFilteredItems(filtered Items) {
 	} else {
 		p.list.SetCursor(0)
 	}
+}
+
+func reverseLine(line tview.Line) tview.Line {
+	cloned := make(tview.Line, len(line))
+	for i, segment := range line {
+		cloned[i] = segment
+		id, url := cloned[i].Style.GetUrl()
+		cloned[i].Style = cloned[i].Style.Reverse(true)
+		if url != "" {
+			cloned[i].Style = cloned[i].Style.Url(url).UrlId(id)
+		}
+	}
+	return cloned
 }
 
 func (p *Picker) SetKeyMap(keyMap *KeyMap) {

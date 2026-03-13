@@ -130,7 +130,13 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *discordmd.Emoji:
 			if entering {
-				builder.Write(":"+node.Name+":", ui.MergeStyle(currentStyle(), theme.EmojiStyle.Style))
+				style := ui.MergeStyle(currentStyle(), theme.EmojiStyle.Style)
+				if node.ID != "" {
+					style = style.Url(node.EmojiURL())
+					builder.Write(CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
+					break
+				}
+				builder.Write(":"+node.Name+":", style)
 			}
 		}
 		return ast.WalkContinue, nil

@@ -43,6 +43,8 @@ func (v *Model) OpenState(token string) error {
 	v.state.AddHandler(v.onReadUpdate)
 	v.state.AddHandler(v.onGuildMembersChunk)
 	v.state.AddHandler(v.onGuildMemberRemove)
+	v.state.AddHandler(v.onMessageReactionAdd)
+	v.state.AddHandler(v.onMessageReactionRemove)
 
 	if v.cfg.TypingIndicator.Receive {
 		v.state.AddHandler(v.onTypingStart)
@@ -239,4 +241,46 @@ func (v *Model) onTypingStart(event *gateway.TypingStartEvent) {
 	}
 
 	v.addTyper(event.UserID)
+}
+
+func (v *Model) onMessageReactionAdd(event *gateway.MessageReactionAddEvent) {
+	if selected := v.SelectedChannel(); selected != nil && selected.ID == event.ChannelID {
+		index := slices.IndexFunc(v.messagesList.messages, func(m discord.Message) bool {
+			return m.ID == event.MessageID
+		})
+		if index < 0 {
+			return
+		}
+
+		msg, err := v.state.Cabinet.Message(event.ChannelID, event.MessageID)
+		if err != nil {
+			slog.Error("failed to get message from state", "err", err, "message_id", event.MessageID)
+			return
+		}
+
+		v.app.QueueUpdateDraw(func() {
+			v.messagesList.setMessage(index, *msg)
+		})
+	}
+}
+
+func (v *Model) onMessageReactionRemove(event *gateway.MessageReactionRemoveEvent) {
+	if selected := v.SelectedChannel(); selected != nil && selected.ID == event.ChannelID {
+		index := slices.IndexFunc(v.messagesList.messages, func(m discord.Message) bool {
+			return m.ID == event.MessageID
+		})
+		if index < 0 {
+			return
+		}
+
+		msg, err := v.state.Cabinet.Message(event.ChannelID, event.MessageID)
+		if err != nil {
+			slog.Error("failed to get message from state", "err", err, "message_id", event.MessageID)
+			return
+		}
+
+		v.app.QueueUpdateDraw(func() {
+			v.messagesList.setMessage(index, *msg)
+		})
+	}
 }

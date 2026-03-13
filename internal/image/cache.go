@@ -1,21 +1,24 @@
 package image
 
 import (
+	"bytes"
 	"fmt"
 	"image"
-	_ "image/gif"
+	"image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	_ "golang.org/x/image/webp"
 )
 
 type entry struct {
 	img     image.Image
+	anim    *animation
 	loading bool
 	failed  bool
 }
@@ -50,6 +53,24 @@ func (c *Cache) Get(url string) (image.Image, bool) {
 		return nil, false
 	}
 	return e.img, true
+}
+
+// GetFrame returns the current frame for url at the given time.
+// For non-animated images, frameIndex is 0, nextDelay is 0, and animated is false.
+func (c *Cache) GetFrame(url string, now time.Time) (img image.Image, frameIndex int, nextDelay time.Duration, animated bool, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	e, ok := c.entries[url]
+	if !ok || e.loading || e.failed {
+		return nil, -1, 0, false, false
+	}
+	if e.anim == nil {
+		return e.img, 0, 0, false, true
+	}
+
+	img, frameIndex, nextDelay = e.anim.FrameAt(now)
+	return img, frameIndex, nextDelay, true, img != nil
 }
 
 // Failed reports whether the image at url failed to download or decode.
@@ -102,6 +123,15 @@ func (c *Cache) Request(url string, maxFileSize int64, attachmentSize uint64, on
 	}()
 }
 
+// Requested reports whether a request for url has been initiated (it may
+// still be loading, completed, or failed).
+func (c *Cache) Requested(url string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.entries[url]
+	return ok
+}
+
 func (c *Cache) downloadAndDecode(url string, maxFileSize int64) (image.Image, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -124,9 +154,42 @@ func (c *Cache) downloadAndDecode(url string, maxFileSize int64) (image.Image, e
 		reader = io.LimitReader(resp.Body, maxFileSize+1)
 	}
 
-	img, _, err := image.Decode(reader)
+	data, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("image decode: %w", err)
+		return nil, fmt.Errorf("read image: %w", err)
 	}
+	if maxFileSize > 0 && int64(len(data)) > maxFileSize {
+		return nil, fmt.Errorf("image too large: %d > %d", len(data), maxFileSize)
+	}
+
+	img, anim, err := decodeImageData(data, url)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	if e, ok := c.entries[url]; ok {
+		e.anim = anim
+	}
+	c.mu.Unlock()
+
 	return img, nil
+}
+
+func decodeImageData(data []byte, url string) (image.Image, *animation, error) {
+	if isGIFData(data, url) {
+		g, err := gif.DecodeAll(bytes.NewReader(data))
+		if err == nil {
+			anim := newAnimation(g, time.Now())
+			if anim != nil {
+				return anim.FirstFrame(), anim, nil
+			}
+		}
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, nil, fmt.Errorf("image decode: %w", err)
+	}
+	return img, nil, nil
 }

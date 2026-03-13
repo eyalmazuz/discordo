@@ -38,6 +38,7 @@ import (
 const tmpFilePattern = consts.Name + "_*.md"
 
 var mentionRegex = regexp.MustCompile("@[a-zA-Z0-9._]+")
+var emojiRegex = regexp.MustCompile(":([a-zA-Z0-9_]+):")
 
 type messageInput struct {
 	*tview.TextArea
@@ -263,31 +264,44 @@ func (mi *messageInput) send() {
 }
 
 func (mi *messageInput) processText(channel *discord.Channel, src []byte) string {
-	// Fast path: no mentions to expand.
-	if bytes.IndexByte(src, '@') == -1 {
+	hasMention := bytes.IndexByte(src, '@') != -1
+	hasEmoji := emojiRegex.Match(src)
+
+	// Fast path: nothing to expand.
+	if !hasMention && !hasEmoji {
 		return string(src)
 	}
 
-	// Fast path: no back ticks (code blocks), so expand mentions directly.
+	expand := func(b []byte) []byte {
+		if hasMention {
+			b = mi.expandMentions(channel, b)
+		}
+		if hasEmoji {
+			b = mi.expandEmojis(channel, b)
+		}
+		return b
+	}
+
+	// Fast path: no back ticks (code blocks), so expand directly.
 	if bytes.IndexByte(src, '`') == -1 {
-		return string(mi.expandMentions(channel, src))
+		return string(expand(src))
 	}
 
 	var (
-		ranges     [][2]int
-		canMention = true
+		ranges    [][2]int
+		canExpand = true
 	)
 
 	ast.Walk(discordmd.Parse(src), func(node ast.Node, enter bool) (ast.WalkStatus, error) {
 		switch node := node.(type) {
 		case *ast.CodeBlock, *ast.FencedCodeBlock:
-			canMention = !enter
+			canExpand = !enter
 		case *discordmd.Inline:
 			if (node.Attr & discordmd.AttrMonospace) != 0 {
-				canMention = !enter
+				canExpand = !enter
 			}
 		case *ast.Text:
-			if canMention {
+			if canExpand {
 				ranges = append(ranges, [2]int{node.Segment.Start,
 					node.Segment.Stop})
 			}
@@ -296,10 +310,31 @@ func (mi *messageInput) processText(channel *discord.Channel, src []byte) string
 	})
 
 	for _, rng := range ranges {
-		src = slices.Replace(src, rng[0], rng[1], mi.expandMentions(channel, src[rng[0]:rng[1]])...)
+		src = slices.Replace(src, rng[0], rng[1], expand(src[rng[0]:rng[1]])...)
 	}
 
 	return string(src)
+}
+
+func (mi *messageInput) expandEmojis(c *discord.Channel, src []byte) []byte {
+	emojis := availableEmojisForChannel(mi.chat.state, c)
+	if len(emojis) == 0 {
+		return src
+	}
+	return replaceEmojis(emojis, src)
+}
+
+// replaceEmojis substitutes :name: shortcodes with Discord emoji format.
+func replaceEmojis(emojis []discord.Emoji, src []byte) []byte {
+	return emojiRegex.ReplaceAllFunc(src, func(match []byte) []byte {
+		name := string(match[1 : len(match)-1]) // strip surrounding colons
+		for _, e := range emojis {
+			if e.Name == name {
+				return []byte(e.String())
+			}
+		}
+		return match
+	})
 }
 
 func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
