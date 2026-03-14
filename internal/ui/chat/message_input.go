@@ -67,7 +67,7 @@ func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
 		chat:            chatView,
 		sendMessageData: &api.SendMessageData{},
 		cache:           cache.NewCache(),
-		mentionsList:    newMentionsList(cfg),
+		mentionsList:    newMentionsList(cfg, chatView),
 	}
 	mi.Box = ui.ConfigureBox(mi.Box, &cfg.Theme)
 	mi.
@@ -376,13 +376,76 @@ func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
 }
 
 func (mi *messageInput) tabComplete() {
-	posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
-	})
-	if r != '@' {
+	posEnd, name, r := mi.autocompleteTriggerUnderCursor()
+	switch r {
+	case '@':
+		mi.tabCompleteMention(posEnd, name)
+	case ':':
+		mi.tabCompleteEmoji(posEnd, name)
+	default:
+		mi.stopTabCompletion(nil)
+	}
+}
+
+func (mi *messageInput) tabSuggestion() {
+	_, name, r := mi.autocompleteTriggerUnderCursor()
+	if r != '@' && r != ':' {
 		mi.stopTabCompletion(nil)
 		return
 	}
+	selected := mi.chat.SelectedChannel()
+	if selected == nil {
+		mi.stopTabCompletion(nil)
+		return
+	}
+	switch r {
+	case '@':
+		mi.tabSuggestionMentions(selected, name)
+	case ':':
+		mi.tabSuggestionEmojis(selected, name)
+	}
+}
+
+type memberList []discord.Member
+type userList []discord.User
+type emojiList []discord.Emoji
+
+func (ml memberList) String(i int) string {
+	return ml[i].Nick + ml[i].User.DisplayName + ml[i].User.Tag()
+}
+
+func (ml memberList) Len() int {
+	return len(ml)
+}
+
+func (ul userList) String(i int) string {
+	return ul[i].DisplayName + ul[i].Tag()
+}
+
+func (ul userList) Len() int {
+	return len(ul)
+}
+
+func (el emojiList) String(i int) string {
+	return el[i].Name
+}
+
+func (el emojiList) Len() int {
+	return len(el)
+}
+
+func (mi *messageInput) autocompleteTriggerUnderCursor() (int, string, rune) {
+	if posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
+	}); r == '@' {
+		return posEnd, name, r
+	}
+	return mi.GetWordUnderCursor(func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+	})
+}
+
+func (mi *messageInput) tabCompleteMention(posEnd int, name string) {
 	pos := posEnd - (len(name) + 1)
 
 	selected := mi.chat.SelectedChannel()
@@ -427,21 +490,24 @@ func (mi *messageInput) tabComplete() {
 	mi.stopTabCompletion(nil)
 }
 
-func (mi *messageInput) tabSuggestion() {
-	_, name, r := mi.GetWordUnderCursor(func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
-	})
-	if r != '@' {
-		mi.stopTabCompletion(nil)
+func (mi *messageInput) tabCompleteEmoji(posEnd int, name string) {
+	pos := posEnd - (len(name) + 1)
+	if mi.mentionsList.itemCount() == 0 {
 		return
 	}
-	selected := mi.chat.SelectedChannel()
-	if selected == nil {
+	name, ok := mi.mentionsList.selectedInsertText()
+	if !ok {
 		return
 	}
+	mi.Replace(pos, posEnd, ":"+name+":")
+	mi.stopTabCompletion(nil)
+}
+
+func (mi *messageInput) tabSuggestionMentions(selected *discord.Channel, name string) {
 	gID := selected.GuildID
 	cID := selected.ID
 	mi.mentionsList.clear()
+	mi.mentionsList.SetTitle("Mentions")
 
 	var shown map[string]struct{}
 	var userDone struct{}
@@ -499,16 +565,16 @@ func (mi *messageInput) tabSuggestion() {
 			slog.Error("fetching members failed", "err", err)
 			return
 		}
-			res := fuzzy.FindFrom(name, memberList(mems))
-			if len(res) > int(mi.cfg.AutocompleteLimit) {
-				res = res[:int(mi.cfg.AutocompleteLimit)]
-			}
-			for _, r := range res {
-				if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) {
-					mi.addMentionMember(gID, &mems[r.Index])
-				}
+		res := fuzzy.FindFrom(name, memberList(mems))
+		if len(res) > int(mi.cfg.AutocompleteLimit) {
+			res = res[:int(mi.cfg.AutocompleteLimit)]
+		}
+		for _, r := range res {
+			if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) {
+				mi.addMentionMember(gID, &mems[r.Index])
 			}
 		}
+	}
 
 	if mi.mentionsList.itemCount() == 0 {
 		mi.stopTabCompletion(nil)
@@ -519,23 +585,57 @@ func (mi *messageInput) tabSuggestion() {
 	mi.showMentionList()
 }
 
-type memberList []discord.Member
-type userList []discord.User
+func (mi *messageInput) tabSuggestionEmojis(selected *discord.Channel, name string) {
+	mi.mentionsList.clear()
+	mi.mentionsList.SetTitle("Emotes")
 
-func (ml memberList) String(i int) string {
-	return ml[i].Nick + ml[i].User.DisplayName + ml[i].User.Tag()
+	emojis := dedupeEmojisByName(availableEmojisForChannel(mi.chat.state, selected))
+	if len(emojis) == 0 {
+		mi.stopTabCompletion(nil)
+		return
+	}
+
+	addEmoji := func(emoji discord.Emoji) bool {
+		mi.mentionsList.appendEmoji(emoji)
+		return mi.mentionsList.itemCount() >= int(mi.cfg.AutocompleteLimit)
+	}
+
+	if name == "" {
+		for _, emoji := range emojis {
+			if addEmoji(emoji) {
+				break
+			}
+		}
+	} else {
+		res := fuzzy.FindFrom(name, emojiList(emojis))
+		if len(res) > int(mi.cfg.AutocompleteLimit) {
+			res = res[:int(mi.cfg.AutocompleteLimit)]
+		}
+		for _, r := range res {
+			mi.mentionsList.appendEmoji(emojis[r.Index])
+		}
+	}
+
+	if mi.mentionsList.itemCount() == 0 {
+		mi.stopTabCompletion(nil)
+		return
+	}
+
+	mi.mentionsList.rebuild()
+	mi.showMentionList()
 }
 
-func (ml memberList) Len() int {
-	return len(ml)
-}
-
-func (ul userList) String(i int) string {
-	return ul[i].DisplayName + ul[i].Tag()
-}
-
-func (ul userList) Len() int {
-	return len(ul)
+func dedupeEmojisByName(emojis []discord.Emoji) []discord.Emoji {
+	seen := make(map[string]struct{}, len(emojis))
+	deduped := make([]discord.Emoji, 0, len(emojis))
+	for _, emoji := range emojis {
+		if _, ok := seen[emoji.Name]; ok {
+			continue
+		}
+		seen[emoji.Name] = struct{}{}
+		deduped = append(deduped, emoji)
+	}
+	return deduped
 }
 
 // channelHasUser checks if a user has permission to view the specified channel.
@@ -665,6 +765,7 @@ func (mi *messageInput) addMentionUser(user *discord.User) {
 }
 
 func (mi *messageInput) removeMentionsList() {
+	mi.mentionsList.clear()
 	mi.chat.HideLayer(mentionsListLayerName)
 }
 

@@ -1,14 +1,18 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/tview"
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )
 
 func TestMentionsListHelpers(t *testing.T) {
-	m := newMentionsList(newMockChatModel().cfg)
+	chat := newMockChatModel()
+	m := newMentionsList(chat.cfg, chat)
 
 	m.rebuild()
 	if got := m.Cursor(); got != -1 {
@@ -68,5 +72,80 @@ func TestMentionsListHelpers(t *testing.T) {
 	m.clear()
 	if got := m.itemCount(); got != 0 {
 		t.Fatalf("expected cleared list to be empty, got %d", got)
+	}
+}
+
+func TestMentionsListAppendEmojiUsesEmojiPreviewLine(t *testing.T) {
+	chat := newMockChatModel()
+	m := newMentionsList(chat.cfg, chat)
+
+	emoji := discord.Emoji{ID: 123456, Name: "kekw"}
+	m.appendEmoji(emoji)
+	m.rebuild()
+
+	item, ok := m.Builder(0, 0).(*tview.TextView)
+	if !ok {
+		t.Fatalf("expected emoji builder item to be a text view, got %T", m.Builder(0, 0))
+	}
+	lines := item.GetLines()
+	if len(lines) != 1 || len(lines[0]) != 2 {
+		t.Fatalf("expected emoji suggestion to render preview and label, got %#v", lines)
+	}
+	if got := lines[0][0].Text; got != markdown.CustomEmojiText("kekw", chat.cfg.InlineImages.Enabled) {
+		t.Fatalf("expected emoji preview text %q, got %q", markdown.CustomEmojiText("kekw", chat.cfg.InlineImages.Enabled), got)
+	}
+	if _, url := lines[0][0].Style.GetUrl(); url != emoji.EmojiURL() {
+		t.Fatalf("expected emoji preview URL %q, got %q", emoji.EmojiURL(), url)
+	}
+	if got := lines[0][1].Text; got != " kekw" {
+		t.Fatalf("expected emoji label %q, got %q", " kekw", got)
+	}
+	if got := m.maxDisplayWidth(); got < len(" kekw")+inlineEmoteWidth {
+		t.Fatalf("expected emoji width to include preview and label, got %d", got)
+	}
+}
+
+func TestMentionsListClearQueuesKittyDeletesForAutocompleteEmoji(t *testing.T) {
+	chat := newMockChatModel()
+	chat.cfg.InlineImages.Enabled = true
+	chat.messagesList.useKitty = true
+
+	m := newMentionsList(chat.cfg, chat)
+	lockScreen := &lockingTTYScreen{tty: &mockTty{}}
+	m.lastScreen = lockScreen
+	m.emoteItemByKey["https://cdn.discordapp.com/emojis/7.png"] = &imageItem{
+		kittyID:          7,
+		kittyPlaced:      true,
+		kittyUploaded:    true,
+		pendingPlace:     true,
+		kittyCols:        2,
+		kittyVisibleRows: 1,
+		lastX:            1,
+		lastY:            2,
+	}
+
+	m.clear()
+
+	if len(m.pendingDeletes) != 1 || m.pendingDeletes[0] != 7 {
+		t.Fatalf("expected kitty delete to be queued for autocomplete emoji, got %v", m.pendingDeletes)
+	}
+	item := m.emoteItemByKey["https://cdn.discordapp.com/emojis/7.png"]
+	if item.pendingPlace || item.kittyPlaced || item.kittyUploaded {
+		t.Fatal("expected clear to invalidate kitty popup image state")
+	}
+	if lockScreen.lockCalls == 0 {
+		t.Fatal("expected clear to unlock the prior kitty region")
+	}
+	if !m.hasPendingAfterDraw() {
+		t.Fatal("expected clear to keep pending kitty cleanup for AfterDraw")
+	}
+
+	tty := &mockTty{}
+	m.AfterDraw(&screenWithTty{tty: tty})
+	if !strings.Contains(tty.String(), "a=d,d=I,i=7") {
+		t.Fatalf("expected AfterDraw to delete stale kitty popup emoji, got %q", tty.String())
+	}
+	if m.hasPendingAfterDraw() {
+		t.Fatal("expected AfterDraw to drain pending kitty cleanup")
 	}
 }

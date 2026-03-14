@@ -32,6 +32,9 @@ func (v *Model) activeKeyMap() help.KeyMap {
 	if v.GetVisible(messageSearchLayerName) {
 		return v.messageSearch
 	}
+	if v.GetVisible(pinnedMessagesLayerName) {
+		return v.pinnedMessages
+	}
 	if v.GetVisible(reactionPickerLayerName) {
 		return v.messagesList.reactionPicker
 	}
@@ -63,7 +66,7 @@ func (v *Model) baseShortHelp() []keybind.Keybind {
 	}
 	short = append(short, cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind)
 	if v.SelectedChannel() != nil {
-		short = append(short, cfg.ToggleMessageSearch.Keybind)
+		short = append(short, cfg.ToggleMessageSearch.Keybind, cfg.TogglePinnedMessages.Keybind)
 	}
 	return short
 }
@@ -76,7 +79,7 @@ func (v *Model) baseFullHelp() [][]keybind.Keybind {
 	}
 	toggles := []keybind.Keybind{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind}
 	if v.SelectedChannel() != nil {
-		toggles = append(toggles, cfg.ToggleMessageSearch.Keybind)
+		toggles = append(toggles, cfg.ToggleMessageSearch.Keybind, cfg.TogglePinnedMessages.Keybind)
 	}
 	return [][]keybind.Keybind{
 		focus,

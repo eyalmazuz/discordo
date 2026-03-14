@@ -86,6 +86,7 @@ type MessagesListKeybinds struct {
 	Reply        Keybind `toml:"reply"`
 	ReplyMention Keybind `toml:"reply_mention"`
 	React        Keybind `toml:"react"`
+	Pin          Keybind `toml:"pin"`
 
 	Cancel        Keybind `toml:"cancel"`
 	Edit          Keybind `toml:"edit"`
@@ -117,6 +118,7 @@ type Keybinds struct {
 	ToggleGuildsTree     Keybind `toml:"toggle_guilds_tree"`
 	ToggleChannelsPicker Keybind `toml:"toggle_channels_picker"`
 	ToggleMessageSearch  Keybind `toml:"toggle_message_search"`
+	TogglePinnedMessages Keybind `toml:"toggle_pinned_messages"`
 	ToggleHelp           Keybind `toml:"toggle_help"`
 	Suspend              Keybind `toml:"suspend"`
 
@@ -189,6 +191,7 @@ func defaultMessagesListKeybinds() MessagesListKeybinds {
 		Reply:        newKeybind("R", "reply"),
 		ReplyMention: newKeybind("r", "@reply"),
 		React:        newKeybind("+", "react"),
+		Pin:          newKeybind("p", "pin"),
 		Cancel:       newKeybind("esc", "cancel"),
 		Edit:         newKeybind("e", "edit"),
 		Delete:       newKeybind("D", "force delete"),
@@ -231,6 +234,7 @@ func defaultKeybinds() Keybinds {
 		ToggleGuildsTree:     newKeybind("ctrl+b", "toggle guilds"),
 		ToggleChannelsPicker: newKeybind("ctrl+k", "channels picker"),
 		ToggleMessageSearch:  newKeybind("ctrl+f", "search"),
+		TogglePinnedMessages: newKeybind("ctrl+p", "pins"),
 		ToggleHelp:           newKeybind("ctrl+.", "help"),
 		Suspend:              newKeybind("ctrl+z", "suspend"),
 

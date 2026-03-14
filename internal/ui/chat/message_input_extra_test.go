@@ -13,6 +13,7 @@ import (
 
 	clipkg "github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/session"
@@ -1293,4 +1294,147 @@ func TestMessageInputTypingAndGuildSuggestionEdgeBranches(t *testing.T) {
 			t.Fatalf("expected default runEditorCmd to succeed for true, got %v", err)
 		}
 	})
+}
+
+func TestMessageInputEmojiAutocompletePopupAndCompletion(t *testing.T) {
+	m := newTestModel()
+	mi := m.messageInput
+	mi.SetDisabled(false)
+
+	channel := &discord.Channel{ID: 150, GuildID: 151, Type: discord.GuildText}
+	m.SetSelectedChannel(channel)
+	m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{
+		{ID: 1, Name: "kekw"},
+		{ID: 2, Name: "kekwait"},
+		{ID: 3, Name: "blobdance"},
+	}, false)
+
+	mi.SetText("hello :", true)
+	mi.tabSuggestion()
+	if !m.GetVisible(mentionsListLayerName) {
+		t.Fatal("expected typing ':' to show the emoji autocomplete popup")
+	}
+	if got := mi.mentionsList.itemCount(); got != 3 {
+		t.Fatalf("expected all channel emojis to be shown for ':', got %d", got)
+	}
+
+	item, ok := mi.mentionsList.Builder(0, 0).(*tview.TextView)
+	if !ok {
+		t.Fatalf("expected emoji suggestion builder item to be a text view, got %T", mi.mentionsList.Builder(0, 0))
+	}
+	lines := item.GetLines()
+	if len(lines) != 1 || len(lines[0]) != 2 {
+		t.Fatalf("expected emoji suggestion to render preview and label, got %#v", lines)
+	}
+	if got := lines[0][0].Text; got != markdown.CustomEmojiText("kekw", m.cfg.InlineImages.Enabled) {
+		t.Fatalf("expected custom emoji preview text %q, got %q", markdown.CustomEmojiText("kekw", m.cfg.InlineImages.Enabled), got)
+	}
+	if _, url := lines[0][0].Style.GetUrl(); url != "https://cdn.discordapp.com/emojis/1.png" {
+		t.Fatalf("expected emoji preview URL for first suggestion, got %q", url)
+	}
+	if got := lines[0][1].Text; got != " kekw" {
+		t.Fatalf("expected emoji label %q, got %q", " kekw", got)
+	}
+
+	mi.SetText("hello :kek", true)
+	mi.tabSuggestion()
+	if got := mi.mentionsList.itemCount(); got != 2 {
+		t.Fatalf("expected emoji suggestions to filter to 2 matching items, got %d", got)
+	}
+
+	mi.mentionsList.SetCursor(1)
+	mi.tabComplete()
+	if got := mi.GetText(); got != "hello :kekwait:" {
+		t.Fatalf("expected emoji completion to insert closing colon, got %q", got)
+	}
+	if m.GetVisible(mentionsListLayerName) {
+		t.Fatal("expected emoji completion to close the autocomplete popup")
+	}
+}
+
+func TestMessageInputEmojiAutocompleteTabKeyCompletesSelection(t *testing.T) {
+	m := newTestModel()
+	mi := m.messageInput
+	mi.SetDisabled(false)
+
+	channel := &discord.Channel{ID: 160, GuildID: 161, Type: discord.GuildText}
+	m.SetSelectedChannel(channel)
+	m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{{ID: 9, Name: "partyblob"}}, false)
+
+	mi.SetText(":par", true)
+	mi.tabSuggestion()
+	if !m.GetVisible(mentionsListLayerName) {
+		t.Fatal("expected emoji autocomplete popup to be visible before tab completion")
+	}
+
+	if _, ok := mi.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatal("expected tab key to return redraw while emoji autocomplete is visible")
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if mi.GetText() == ":partyblob:" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := mi.GetText(); got != ":partyblob:" {
+		t.Fatalf("expected tab key to complete the highlighted emoji, got %q", got)
+	}
+}
+
+func TestModel_HandleEvent_VisibleMentionsListRoutesEventsToMessageInput(t *testing.T) {
+	m := newTestModel()
+	mi := m.messageInput
+	mi.SetDisabled(false)
+	mi.cfg.TypingIndicator.Send = false
+	m.SetSelectedChannel(&discord.Channel{ID: 140, Type: discord.DirectMessage})
+	m.app.SetFocus(mi)
+
+	mi.SetText("@al", true)
+	mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
+	mi.mentionsList.append(mentionsListItem{insertText: "bob", displayText: "Bob", style: tcell.StyleDefault})
+	mi.mentionsList.rebuild()
+	m.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
+
+	if got := mi.mentionsList.Cursor(); got != 0 {
+		t.Fatalf("expected mentions cursor to start at 0, got %d", got)
+	}
+
+	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatalf("expected ctrl+n to redraw while mentions are visible")
+	}
+	if got := mi.mentionsList.Cursor(); got != 1 {
+		t.Fatalf("expected ctrl+n to move mentions cursor to 1, got %d", got)
+	}
+
+	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatalf("expected ctrl+p to redraw while mentions are visible")
+	}
+	if got := mi.mentionsList.Cursor(); got != 0 {
+		t.Fatalf("expected ctrl+p to move mentions cursor back to 0, got %d", got)
+	}
+
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))
+	if got := mi.GetText(); got != "@ali" {
+		t.Fatalf("expected typing to keep updating the input with visible mentions, got %q", got)
+	}
+
+	mi.SetText("@al", true)
+	mi.mentionsList.clear()
+	mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
+	mi.mentionsList.append(mentionsListItem{insertText: "bob", displayText: "Bob", style: tcell.StyleDefault})
+	mi.mentionsList.rebuild()
+	m.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
+
+	executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+	if got := mi.GetText(); got != "@alice " {
+		t.Fatalf("expected enter to tab-complete the highlighted mention, got %q", got)
+	}
+	if m.GetVisible(mentionsListLayerName) {
+		t.Fatal("expected enter tab-completion to close the mentions overlay")
+	}
+	if m.app.GetFocus() != mi {
+		t.Fatal("expected focus to stay on the message input after tab completion")
+	}
 }

@@ -27,6 +27,7 @@ const (
 	attachmentsListLayerName = "attachmentsList"
 	reactionPickerLayerName  = "reactionPicker"
 	messageSearchLayerName   = "messageSearch"
+	pinnedMessagesLayerName  = "pinnedMessages"
 	confirmModalLayerName    = "confirmModal"
 	channelsPickerLayerName  = "channelsPicker"
 )
@@ -44,6 +45,7 @@ type Model struct {
 	messageInput   *messageInput
 	channelsPicker *channelsPicker
 	messageSearch  *messageSearchPopup
+	pinnedMessages *pinnedMessagesPopup
 
 	selectedChannel   *discord.Channel
 	selectedChannelMu sync.RWMutex
@@ -79,6 +81,7 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
 	v.messageInput = newMessageInput(cfg, v)
 	v.channelsPicker = newChannelsPicker(cfg, v)
 	v.messageSearch = newMessageSearchPopup(cfg, v, v.messagesList)
+	v.pinnedMessages = newPinnedMessagesPopup(cfg, v, v.messagesList)
 	v.channelsPicker.SetCancelFunc(v.closePicker)
 
 	v.SetBackgroundLayerStyle(v.cfg.Theme.Dialog.BackgroundStyle.Style)
@@ -89,6 +92,10 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
 	// output; this callback runs after screen.Show() completes.
 	app.SetAfterDrawFunc(func(screen tcell.Screen) {
 		v.messagesList.AfterDraw(screen)
+		if v.messageInput != nil && v.messageInput.mentionsList != nil &&
+			(v.GetVisible(mentionsListLayerName) || v.messageInput.mentionsList.hasPendingAfterDraw()) {
+			v.messageInput.mentionsList.AfterDraw(screen)
+		}
 		if v.GetVisible(reactionPickerLayerName) && v.messagesList != nil && v.messagesList.reactionPicker != nil {
 			v.messagesList.reactionPicker.AfterDraw(screen)
 		}
@@ -102,6 +109,7 @@ func (v *Model) hasPopupOverlay() bool {
 		v.GetVisible(attachmentsListLayerName) ||
 		v.GetVisible(reactionPickerLayerName) ||
 		v.GetVisible(messageSearchLayerName) ||
+		v.GetVisible(pinnedMessagesLayerName) ||
 		v.GetVisible(confirmModalLayerName) ||
 		v.GetVisible(channelsPickerLayerName)
 }
@@ -133,7 +141,13 @@ func (v *Model) buildLayout() {
 		AddItem(v.rightFlex, 0, 4, false)
 
 	v.AddLayer(v.mainFlex, layers.WithName(flexLayerName), layers.WithResize(true), layers.WithVisible(true))
-	v.AddLayer(v.messageInput.mentionsList, layers.WithName(mentionsListLayerName), layers.WithResize(false), layers.WithVisible(false))
+	v.AddLayer(
+		v.messageInput.mentionsList,
+		layers.WithName(mentionsListLayerName),
+		layers.WithResize(false),
+		layers.WithVisible(false),
+		layers.WithEnabled(false),
+	)
 }
 
 func (v *Model) togglePicker() {
@@ -172,6 +186,7 @@ func (v *Model) openMessageSearch() {
 	}
 	if v.GetVisible(attachmentsListLayerName) ||
 		v.GetVisible(reactionPickerLayerName) ||
+		v.GetVisible(pinnedMessagesLayerName) ||
 		v.GetVisible(confirmModalLayerName) ||
 		v.GetVisible(channelsPickerLayerName) {
 		return
@@ -187,6 +202,34 @@ func (v *Model) openMessageSearch() {
 		layers.WithOverlay(),
 	).SendToFront(messageSearchLayerName)
 	v.messageSearch.FocusInput()
+}
+
+func (v *Model) openPinnedMessages() bool {
+	selected := v.SelectedChannel()
+	if selected == nil || v.pinnedMessages == nil {
+		return false
+	}
+	if v.GetVisible(mentionsListLayerName) ||
+		v.GetVisible(attachmentsListLayerName) ||
+		v.GetVisible(reactionPickerLayerName) ||
+		v.GetVisible(messageSearchLayerName) ||
+		v.GetVisible(confirmModalLayerName) ||
+		v.GetVisible(channelsPickerLayerName) ||
+		v.GetVisible(pinnedMessagesLayerName) {
+		return false
+	}
+
+	v.messageInput.removeMentionsList()
+	v.pinnedMessages.Prepare(*selected, v.app.GetFocus())
+	v.AddLayer(
+		ui.Centered(v.pinnedMessages, v.cfg.Picker.Width, v.cfg.Picker.Height),
+		layers.WithName(pinnedMessagesLayerName),
+		layers.WithResize(true),
+		layers.WithVisible(true),
+		layers.WithOverlay(),
+	).SendToFront(pinnedMessagesLayerName)
+	v.pinnedMessages.FocusList()
+	return true
 }
 
 func (v *Model) toggleGuildsTree() {
@@ -312,6 +355,13 @@ func (v *Model) HandleEvent(event tcell.Event) tview.Command {
 		case keybind.Matches(event, v.cfg.Keybinds.ToggleMessageSearch.Keybind):
 			v.openMessageSearch()
 			return redraw
+		case keybind.Matches(event, v.cfg.Keybinds.TogglePinnedMessages.Keybind):
+			if v.GetVisible(mentionsListLayerName) && v.app != nil && v.app.GetFocus() == v.messageInput {
+				return v.messageInput.HandleEvent(event)
+			}
+			if v.openPinnedMessages() {
+				return redraw
+			}
 		case keybind.Matches(event, v.cfg.Keybinds.ToggleChannelsPicker.Keybind):
 			v.togglePicker()
 			return redraw
@@ -376,6 +426,19 @@ func (v *Model) showConfirmModal(prompt string, buttons []string, onDone func(la
 	modal := tview.NewModal().
 		SetText(prompt).
 		AddButtons(buttons)
+	bg := v.cfg.Theme.Dialog.Style.GetBackground()
+	buttonStyle := v.cfg.Theme.Dialog.Style.Style
+	if bg != tcell.ColorDefault {
+		modal.SetBackgroundColor(bg)
+		buttonStyle = buttonStyle.Background(bg)
+	}
+	fg := v.cfg.Theme.Dialog.Style.GetForeground()
+	if fg != tcell.ColorDefault {
+		modal.SetTextColor(fg)
+		buttonStyle = buttonStyle.Foreground(fg)
+	}
+	modal.SetButtonStyle(buttonStyle)
+	modal.SetButtonActivatedStyle(buttonStyle.Reverse(true))
 	v.
 		AddLayer(
 			ui.Centered(modal, 0, 0),
@@ -385,6 +448,8 @@ func (v *Model) showConfirmModal(prompt string, buttons []string, onDone func(la
 			layers.WithOverlay(),
 		).
 		SendToFront(confirmModalLayerName)
+	modal.SetFocus(0)
+	v.app.SetFocus(modal)
 }
 
 func (v *Model) onReadUpdate(event *read.UpdateEvent) {

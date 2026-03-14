@@ -97,6 +97,7 @@ guild_store = "s-"
 [keybinds]
 toggle_help = "ctrl+."
 toggle_message_search = "ctrl+f"
+toggle_pinned_messages = "ctrl+p"
 focus_guilds_tree = "ctrl+g"
 focus_messages_list = "ctrl+t"
 focus_message_input = "ctrl+i"
@@ -151,6 +152,8 @@ reply = "R"
 reply_mention = "r"
 # React to the selected message.
 react = "+"
+# Pin the selected message.
+pin = "p"
 cancel = "esc"
 edit = "e"
 delete = "D"

@@ -55,6 +55,12 @@ var (
 	deleteMessageFunc    = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
 		return s.DeleteMessage(channelID, messageID, reason)
 	}
+	pinMessageFunc = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
+		return s.PinMessage(channelID, messageID, reason)
+	}
+	unpinMessageFunc = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
+		return s.UnpinMessage(channelID, messageID, reason)
+	}
 	messageRemoveFunc = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID) error {
 		return s.MessageRemove(channelID, messageID)
 	}
@@ -1343,6 +1349,9 @@ func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.React.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == "+"):
 			ml.showReactionPicker()
 			return redraw
+		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
+			ml.confirmPin()
+			return redraw
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			ml.reply(false)
 			return redraw
@@ -1789,6 +1798,90 @@ func (ml *messagesList) edit() {
 	ml.chatView.app.SetFocus(ml.chatView.messageInput)
 }
 
+func (ml *messagesList) canManagePins() bool {
+	selected := ml.chatView.SelectedChannel()
+	if selected == nil {
+		return false
+	}
+
+	if selected.Type == discord.DirectMessage || selected.Type == discord.GroupDM {
+		return true
+	}
+
+	return ml.chatView.state.HasPermissions(selected.ID, discord.PermissionManageMessages)
+}
+
+func (ml *messagesList) canPinMessage(message *discord.Message) bool {
+	return message != nil && ml.canManagePins()
+}
+
+func (ml *messagesList) setMessagePinned(channelID discord.ChannelID, messageID discord.MessageID, pinned bool) {
+	for i := range ml.messages {
+		if ml.messages[i].ID != messageID {
+			continue
+		}
+
+		ml.messages[i].Pinned = pinned
+		_ = ml.chatView.state.Cabinet.MessageStore.MessageSet(&ml.messages[i], true)
+		delete(ml.itemByID, messageID)
+		return
+	}
+
+	cached, err := ml.chatView.state.Cabinet.MessageStore.Message(channelID, messageID)
+	if err != nil || cached == nil {
+		return
+	}
+
+	cached.Pinned = pinned
+	_ = ml.chatView.state.Cabinet.MessageStore.MessageSet(cached, true)
+	delete(ml.itemByID, messageID)
+}
+
+func (ml *messagesList) confirmPin() {
+	message, err := ml.selectedMessage()
+	if err != nil {
+		slog.Error("failed to get selected message", "err", err)
+		return
+	}
+	if !ml.canPinMessage(message) {
+		slog.Error("failed to pin message; missing relevant permissions", "channel_id", message.ChannelID, "message_id", message.ID)
+		return
+	}
+
+	onChoice := func(choice string) {
+		if choice == "yes" {
+			ml.pin()
+		}
+	}
+
+	ml.chatView.showPinConfirmDialog(ml.renderMessage(*message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style), onChoice)
+}
+
+func (ml *messagesList) pin() {
+	msg, err := ml.selectedMessage()
+	if err != nil {
+		slog.Error("failed to get selected message", "err", err)
+		return
+	}
+
+	if !ml.canPinMessage(msg) {
+		slog.Error("failed to pin message; missing relevant permissions", "channel_id", msg.ChannelID, "message_id", msg.ID)
+		return
+	}
+
+	selected := ml.chatView.SelectedChannel()
+	if selected == nil {
+		return
+	}
+
+	if err := pinMessageFunc(ml.chatView.state.State, selected.ID, msg.ID, ""); err != nil {
+		slog.Error("failed to pin message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
+		return
+	}
+
+	ml.setMessagePinned(selected.ID, msg.ID, true)
+}
+
 func (ml *messagesList) confirmDelete() {
 	onChoice := func(choice string) {
 		if choice == "Yes" {
@@ -1854,10 +1947,10 @@ func (ml *messagesList) requestGuildMembers(guildID discord.GuildID, messages []
 	}
 
 	if len(usersToFetch) > 0 {
-			err := sendGatewayFunc(ml.chatView.state.State, context.Background(), &gateway.RequestGuildMembersCommand{
-				GuildIDs: []discord.GuildID{guildID},
-				UserIDs:  usersToFetch,
-			})
+		err := sendGatewayFunc(ml.chatView.state.State, context.Background(), &gateway.RequestGuildMembersCommand{
+			GuildIDs: []discord.GuildID{guildID},
+			UserIDs:  usersToFetch,
+		})
 		if err != nil {
 			slog.Error("failed to request guild members", "guild_id", guildID, "err", err)
 			return
@@ -1912,6 +2005,9 @@ func (ml *messagesList) ShortHelp() []keybind.Keybind {
 			help = append(help, cfg.Reply.Keybind)
 		}
 		help = append(help, cfg.React.Keybind)
+		if ml.canPinMessage(msg) {
+			help = append(help, cfg.Pin.Keybind)
+		}
 	}
 
 	return help
@@ -1954,6 +2050,9 @@ func (ml *messagesList) FullHelp() [][]keybind.Keybind {
 	manage := make([]keybind.Keybind, 0, 4)
 	if canEdit {
 		manage = append(manage, cfg.Edit.Keybind)
+	}
+	if selected, err := ml.selectedMessage(); err == nil && ml.canPinMessage(selected) {
+		manage = append(manage, cfg.Pin.Keybind)
 	}
 	if canDelete {
 		manage = append(manage, cfg.DeleteConfirm.Keybind, cfg.Delete.Keybind)
