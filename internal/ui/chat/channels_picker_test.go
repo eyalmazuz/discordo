@@ -201,6 +201,32 @@ func TestChannelsPickerUpdateSkipsGuildsWithChannelErrors(t *testing.T) {
 	}
 }
 
+func TestChannelsPickerUpdateGuildLookupErrorKeepsPrivateChannels(t *testing.T) {
+	m := newMockChatModel()
+	cp := newChannelsPicker(m.cfg, m)
+
+	privateChannel := &discord.Channel{
+		ID:            100,
+		Name:          "latest-dm",
+		Type:          discord.DirectMessage,
+		LastMessageID: 99,
+		DMRecipients:  []discord.User{{ID: 200, Username: "friend"}},
+	}
+	m.state.Cabinet.ChannelStore.ChannelSet(privateChannel, false)
+	m.state.Cabinet.GuildStore = store.Noop
+
+	cp.update()
+
+	items := pickerItems(t, cp)
+	if len(items) != 1 {
+		t.Fatalf("expected private channels to remain when guild lookup fails, got %d items", len(items))
+	}
+	expected := ui.ChannelToString(*privateChannel, m.cfg.Icons, m.state)
+	if items[0].Text != expected {
+		t.Fatalf("expected private channel item %q, got %q", expected, items[0].Text)
+	}
+}
+
 func TestChannelsPickerUpdateSuccess(t *testing.T) {
 	m := newMockChatModel()
 	cp := newChannelsPicker(m.cfg, m)

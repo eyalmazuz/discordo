@@ -4,13 +4,18 @@ package notifications
 
 import "github.com/gen2brain/beeep"
 
+var (
+	beeepNotify = beeep.Notify
+	beeepBeep   = beeep.Beep
+)
+
 func sendDesktopNotification(title string, message string, image string, playSound bool, duration int) error {
-	if err := beeep.Notify(title, message, image); err != nil {
+	if err := beeepNotify(title, message, image); err != nil {
 		return err
 	}
 
 	if playSound {
-		return beeep.Beep(beeep.DefaultFreq, duration)
+		return beeepBeep(beeep.DefaultFreq, duration)
 	}
 
 	return nil

@@ -21,6 +21,16 @@ func (m *mockBaseTransport) RoundTrip(req *http.Request) (*http.Response, error)
 }
 
 func TestTransport_RoundTrip(t *testing.T) {
+	t.Run("BaseError", func(t *testing.T) {
+		tr := &Transport{
+			base: &mockBaseTransport{err: io.EOF},
+		}
+		req := httptest.NewRequest("GET", "http://example.com", nil)
+		if _, err := tr.RoundTrip(req); err == nil {
+			t.Fatal("expected base transport error")
+		}
+	})
+
 	t.Run("Brotli_Decompression", func(t *testing.T) {
 		var buf bytes.Buffer
 		bw := brotli.NewWriter(&buf)

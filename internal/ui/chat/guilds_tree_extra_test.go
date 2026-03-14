@@ -1,13 +1,55 @@
 package chat
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
+	"unsafe"
 
+	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/state/store"
+	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/gdamore/tcell/v3"
 )
+
+type errGuildChannelStore struct {
+	base *defaultstore.Channel
+}
+
+func (s *errGuildChannelStore) Reset() error {
+	return s.base.Reset()
+}
+
+func (s *errGuildChannelStore) Channel(id discord.ChannelID) (*discord.Channel, error) {
+	return s.base.Channel(id)
+}
+
+func (s *errGuildChannelStore) CreatePrivateChannel(recipient discord.UserID) (*discord.Channel, error) {
+	return s.base.CreatePrivateChannel(recipient)
+}
+
+func (s *errGuildChannelStore) Channels(discord.GuildID) ([]discord.Channel, error) {
+	return nil, store.ErrNotFound
+}
+
+func (s *errGuildChannelStore) PrivateChannels() ([]discord.Channel, error) {
+	return s.base.PrivateChannels()
+}
+
+func (s *errGuildChannelStore) ChannelSet(c *discord.Channel, update bool) error {
+	return s.base.ChannelSet(c, update)
+}
+
+func (s *errGuildChannelStore) ChannelRemove(c *discord.Channel) error {
+	return s.base.ChannelRemove(c)
+}
 
 func TestGuildsTreeUnreadStyleAndFindNodeFallback(t *testing.T) {
 	gt := newGuildsTree(newMockChatModel().cfg, nil)
@@ -196,7 +238,206 @@ func TestGuildsTreeYankIDBranches(t *testing.T) {
 	}
 }
 
+func TestGuildsTreeYankIDClipboardFailure(t *testing.T) {
+	gt := newGuildsTree(newMockChatModel().cfg, nil)
+	node := tview.NewTreeNode("guild").SetReference(discord.GuildID(99))
+	gt.GetRoot().AddChild(node)
+	gt.SetCurrentNode(node)
+
+	oldClipboardWrite := clipboardWrite
+	called := make(chan struct{}, 1)
+	clipboardWrite = func(_ clipboard.Format, _ []byte) error {
+		called <- struct{}{}
+		return fmt.Errorf("clipboard fail")
+	}
+	t.Cleanup(func() { clipboardWrite = oldClipboardWrite })
+
+	gt.yankID()
+	select {
+	case <-called:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("timed out waiting for clipboard failure branch")
+	}
+}
+
 func TestGuildsTreeExpandPathToNodeNil(t *testing.T) {
 	gt := newGuildsTree(newMockChatModel().cfg, nil)
 	gt.expandPathToNode(nil)
+}
+
+func TestGuildsTreeAdditionalBranchCoverage(t *testing.T) {
+	t.Run("group dm channel uses group dm indent", func(t *testing.T) {
+		m := newMockChatModel()
+		gt := newGuildsTree(m.cfg, m)
+		parent := tview.NewTreeNode("parent")
+		channel := discord.Channel{ID: 15, Type: discord.GroupDM, Name: "group"}
+		gt.createChannelNode(parent, channel)
+		if len(parent.GetChildren()) != 1 {
+			t.Fatal("expected group dm node to be created")
+		}
+		child := parent.GetChildren()[0]
+		field := reflect.ValueOf(child).Elem().FieldByName("indent")
+		indent := *(*int)(unsafe.Pointer(field.UnsafeAddr()))
+		if indent != gt.cfg.Theme.GuildsTree.Indents.GroupDM {
+			t.Fatalf("expected group dm indent %d, got %d", gt.cfg.Theme.GuildsTree.Indents.GroupDM, indent)
+		}
+	})
+
+	t.Run("short and full help expose collapse for nested nodes", func(t *testing.T) {
+		m := newMockChatModel()
+		gt := newGuildsTree(m.cfg, m)
+		parent := tview.NewTreeNode("parent").SetReference(discord.GuildID(1)).SetExpanded(true)
+		child := tview.NewTreeNode("child").SetReference(discord.ChannelID(2))
+		gt.GetRoot().AddChild(parent)
+		parent.AddChild(child)
+		gt.SetCurrentNode(child)
+		gt.SetRect(0, 0, 80, 24)
+		gt.Draw(&completeMockScreen{})
+
+		if !gt.canCollapseParent(child) {
+			t.Fatal("expected nested node to allow collapsing its parent")
+		}
+		collapseKey := gt.cfg.Keybinds.GuildsTree.CollapseParentNode.Keybind.Help().Key
+		foundShort := false
+		for _, binding := range gt.ShortHelp() {
+			if binding.Help().Key == collapseKey {
+				foundShort = true
+				break
+			}
+		}
+		if !foundShort {
+			t.Fatal("expected short help to include collapse-parent for nested nodes")
+		}
+		foundFull := false
+		for _, group := range gt.FullHelp() {
+			for _, binding := range group {
+				if binding.Help().Key == collapseKey {
+					foundFull = true
+					break
+				}
+			}
+		}
+		if !foundFull {
+			t.Fatal("expected full help to include collapse-parent for nested nodes")
+		}
+	})
+
+	t.Run("help marks leaf guild and dm nodes as expandable", func(t *testing.T) {
+		gt := newGuildsTree(newMockChatModel().cfg, nil)
+
+		guildNode := tview.NewTreeNode("guild").SetReference(discord.GuildID(1))
+		gt.SetCurrentNode(guildNode)
+		if !containsKeybindGroup(gt.FullHelp(), gt.cfg.Keybinds.GuildsTree.MoveToParentNode.Keybind) {
+			t.Fatal("expected full help to remain populated for guild leaf")
+		}
+
+		dmRoot := tview.NewTreeNode("dm").SetReference(dmNode{})
+		gt.SetCurrentNode(dmRoot)
+		if len(gt.ShortHelp()) == 0 {
+			t.Fatal("expected short help for DM root leaf")
+		}
+	})
+
+	t.Run("onSelected nil and forum branches", func(t *testing.T) {
+		m := newMockChatModel()
+		gt := newGuildsTree(m.cfg, m)
+
+		gt.onSelected(tview.NewTreeNode("nil"))
+
+		forum := &discord.Channel{ID: 22, GuildID: 33, Name: "forum", Type: discord.GuildForum}
+		m.state.Cabinet.ChannelStore.ChannelSet(forum, false)
+		node := tview.NewTreeNode("forum").SetReference(forum.ID).SetExpanded(false)
+		gt.onSelected(node)
+		if !node.IsExpanded() {
+			t.Fatal("expected forum node selection to toggle expansion")
+		}
+	})
+
+	t.Run("loadChannel message error", func(t *testing.T) {
+		transport := &mockTransport{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				if strings.Contains(req.URL.Path, "/messages") {
+					return &http.Response{
+						StatusCode: 500,
+						Body:       io.NopCloser(strings.NewReader(`{"message":"boom"}`)),
+						Header:     make(http.Header),
+					}, nil
+				}
+				return (&mockTransport{}).RoundTrip(req)
+			},
+		}
+		mErr := newTestModelWithTransport(transport)
+		gtErr := newGuildsTree(mErr.cfg, mErr)
+		channel := &discord.Channel{ID: 70, GuildID: 80, Name: "general", Type: discord.GuildText}
+		mErr.state.Cabinet.ChannelStore.ChannelSet(channel, false)
+		gtErr.loadChannel(tview.NewTreeNode("general"), channel)
+		if mErr.SelectedChannel() != nil {
+			t.Fatal("expected loadChannel error to leave selected channel unchanged")
+		}
+	})
+
+	t.Run("loadChildren thread channel lookup error", func(t *testing.T) {
+		m := newMockChatModel()
+		m.state.Cabinet.ChannelStore = &errGuildChannelStore{base: defaultstore.NewChannel()}
+		gt := newGuildsTree(m.cfg, m)
+		text := &discord.Channel{ID: 51, GuildID: 61, Name: "general", Type: discord.GuildText}
+		if err := m.state.Cabinet.ChannelStore.ChannelSet(text, false); err != nil {
+			t.Fatalf("failed to seed channel store: %v", err)
+		}
+		if gt.loadChildren(tview.NewTreeNode("general").SetReference(text.ID)) {
+			t.Fatal("expected thread container lookup to fail when guild channel listing fails")
+		}
+	})
+
+	t.Run("handle event collapse parent and non-key fallthrough", func(t *testing.T) {
+		m := newMockChatModel()
+		gt := newGuildsTree(m.cfg, m)
+		parent := tview.NewTreeNode("parent").SetReference(discord.GuildID(1)).SetExpanded(true)
+		child := tview.NewTreeNode("child").SetReference(discord.ChannelID(2))
+		gt.GetRoot().AddChild(parent)
+		parent.AddChild(child)
+		gt.SetCurrentNode(child)
+		gt.SetRect(0, 0, 80, 24)
+		gt.Draw(&completeMockScreen{})
+
+		if _, ok := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "-", tcell.ModNone)).(tview.RedrawCommand); !ok {
+			t.Fatal("expected collapse-parent key to redraw")
+		}
+		if gt.GetCurrentNode() != parent || parent.IsExpanded() {
+			t.Fatal("expected collapse-parent key to collapse and select parent")
+		}
+
+		gt.SetCurrentNode(child)
+		if cmd := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)); cmd == nil {
+			t.Fatal("expected move-to-parent key to forward a navigation command")
+		}
+		if cmd := gt.HandleEvent(tcell.NewEventMouse(0, 0, tcell.ButtonNone, 0)); cmd != nil {
+			t.Fatalf("expected unmatched non-key event to fall through without command, got %T", cmd)
+		}
+	})
+
+	t.Run("find node by reference and channel id handles dm and missing thread parent", func(t *testing.T) {
+		m := newMockChatModel()
+		gt := newGuildsTree(m.cfg, m)
+		m.guildsTree = gt
+
+		dmRoot := tview.NewTreeNode("Direct Messages").SetReference(dmNode{})
+		gt.dmRootNode = dmRoot
+		gt.GetRoot().AddChild(dmRoot)
+		dm := &discord.Channel{ID: 91, Type: discord.DirectMessage, DMRecipients: []discord.User{{ID: 2, Username: "friend"}}}
+		m.state.Cabinet.ChannelStore.ChannelSet(dm, false)
+
+		if got := gt.findNodeByReference(dmNode{}); got != dmRoot {
+			t.Fatalf("expected DM root lookup, got %v", got)
+		}
+		if got := gt.findNodeByChannelID(dm.ID); got == nil || got.GetReference() != dm.ID {
+			t.Fatalf("expected DM lookup to load and return the DM node, got %v", got)
+		}
+
+		thread := &discord.Channel{ID: 92, GuildID: 100, ParentID: 93, Type: discord.GuildPublicThread}
+		m.state.Cabinet.ChannelStore.ChannelSet(thread, false)
+		if got := gt.findNodeByChannelID(thread.ID); got != nil {
+			t.Fatalf("expected missing thread parent lookup to fail, got %v", got)
+		}
+	})
 }

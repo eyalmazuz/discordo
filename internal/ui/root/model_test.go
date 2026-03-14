@@ -3,6 +3,7 @@ package root
 import (
 	"errors"
 	"os"
+	"syscall"
 	"testing"
 
 	"github.com/ayn2op/discordo/internal/config"
@@ -10,6 +11,7 @@ import (
 	loginpkg "github.com/ayn2op/discordo/internal/ui/login"
 	qrpkg "github.com/ayn2op/discordo/internal/ui/login/qr"
 	tokenpkg "github.com/ayn2op/discordo/internal/ui/login/token"
+	"github.com/ayn2op/tview/keybind"
 	"github.com/ayn2op/tview"
 	"github.com/gdamore/tcell/v3"
 )
@@ -20,6 +22,12 @@ type stubRootInner struct {
 	handled int
 	focused bool
 	blurred bool
+}
+
+type stubRootInnerKeyMap struct {
+	*stubRootInner
+	short []keybind.Keybind
+	full  [][]keybind.Keybind
 }
 
 func (s *stubRootInner) HandleEvent(event tcell.Event) tview.Command {
@@ -39,6 +47,14 @@ func (s *stubRootInner) HasFocus() bool {
 func (s *stubRootInner) Blur() {
 	s.blurred = true
 	s.focused = false
+}
+
+func (s *stubRootInnerKeyMap) ShortHelp() []keybind.Keybind {
+	return s.short
+}
+
+func (s *stubRootInnerKeyMap) FullHelp() [][]keybind.Keybind {
+	return s.full
 }
 
 func newTestRootModel(t *testing.T) *Model {
@@ -129,9 +145,17 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 
 	oldGetStoredToken := getStoredToken
 	oldInitClipboardFn := initClipboardFn
+	oldSuspendApp := suspendApp
+	oldNotifySignal := notifySignal
+	oldStopSignal := stopSignal
+	oldKillProcess := killProcess
 	t.Cleanup(func() {
 		getStoredToken = oldGetStoredToken
 		initClipboardFn = oldInitClipboardFn
+		suspendApp = oldSuspendApp
+		notifySignal = oldNotifySignal
+		stopSignal = oldStopSignal
+		killProcess = oldKillProcess
 		os.Unsetenv(tokenEnvVarKey)
 	})
 
@@ -204,6 +228,23 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 		t.Fatal("expected toggle-help key to enable full help")
 	}
 
+	suspended := false
+	suspendApp = func(_ *tview.Application, fn func()) {
+		suspended = true
+		fn()
+	}
+	notifySignal = func(c chan<- os.Signal, _ ...os.Signal) {
+		c <- syscall.SIGCONT
+	}
+	stopSignal = func(chan<- os.Signal) {}
+	killProcess = func(int, syscall.Signal) error { return nil }
+	if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlZ, "", tcell.ModCtrl)); cmd != nil {
+		t.Fatalf("expected suspend key to return nil, got %T", cmd)
+	}
+	if !suspended {
+		t.Fatal("expected suspend key to hit the suspend path")
+	}
+
 	inner := &stubRootInner{Box: tview.NewBox(), cmd: tview.RedrawCommand{}}
 	m.inner = inner
 	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)).(tview.RedrawCommand); !ok {
@@ -211,6 +252,17 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 	}
 	if inner.handled != 1 {
 		t.Fatalf("expected forwarded key to hit inner primitive once, got %d", inner.handled)
+	}
+
+	quitBatch, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl)).(tview.BatchCommand)
+	if !ok {
+		t.Fatalf("expected quit key to return a batch command, got %T", quitBatch)
+	}
+	if len(quitBatch) != 2 {
+		t.Fatalf("expected quit batch to contain inner and quit commands, got %d entries", len(quitBatch))
+	}
+	if inner.handled != 2 {
+		t.Fatalf("expected quit to forward a quit event to the inner primitive, got %d total calls", inner.handled)
 	}
 
 	m.Focus(func(tview.Primitive) {})
@@ -227,5 +279,41 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 	}
 	if len(m.ShortHelp()) == 0 || len(m.FullHelp()) == 0 {
 		t.Fatal("expected root help to be populated")
+	}
+
+	keyed := &stubRootInnerKeyMap{
+		stubRootInner: &stubRootInner{Box: tview.NewBox()},
+		short:         []keybind.Keybind{keybind.NewKeybind(keybind.WithHelp("x", "inner"))},
+		full:          [][]keybind.Keybind{{keybind.NewKeybind(keybind.WithHelp("x", "inner"))}},
+	}
+	m.inner = keyed
+	if m.activeKeyMap() == nil {
+		t.Fatal("expected keymap-aware inner primitive to be returned")
+	}
+	if got := len(m.ShortHelp()); got < 4 {
+		t.Fatalf("expected short help to include inner and global bindings, got %d entries", got)
+	}
+	if got := len(m.FullHelp()); got < 2 {
+		t.Fatalf("expected full help to include inner and global groups, got %d groups", got)
+	}
+
+	nilInner := newTestRootModel(t)
+	if !nilInner.HasFocus() {
+		t.Fatal("expected root model without inner primitive to report focus")
+	}
+	if cmd := nilInner.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected unmatched key without inner primitive to return nil, got %T", cmd)
+	}
+	if batch, ok := nilInner.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl)).(tview.BatchCommand); !ok || len(batch) != 2 {
+		t.Fatalf("expected quit without inner primitive to return a 2-entry batch command, got %#v", batch)
+	}
+}
+
+func TestRootModelGeometry(t *testing.T) {
+	m := newTestRootModel(t)
+	m.SetRect(2, 3, 40, 12)
+	x, y, w, h := m.GetRect()
+	if x != 2 || y != 3 || w != 40 || h != 12 {
+		t.Fatalf("unexpected rect: %d %d %d %d", x, y, w, h)
 	}
 }

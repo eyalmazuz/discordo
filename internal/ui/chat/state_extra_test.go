@@ -1,14 +1,30 @@
 package chat
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/ayn2op/discordo/internal/config"
+	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/utils/httputil/httpdriver"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
+	"github.com/diamondburned/ningen/v3"
 )
+
+type dummyRequest struct{}
+
+func (dummyRequest) GetPath() string              { return "/" }
+func (dummyRequest) GetContext() context.Context  { return context.Background() }
+func (dummyRequest) AddHeader(http.Header)        {}
+func (dummyRequest) AddQuery(url.Values)          {}
+func (dummyRequest) WithBody(io.ReadCloser)       {}
 
 func TestState_Events(t *testing.T) {
 	m := newTestModel()
@@ -73,33 +89,45 @@ func TestState_Events(t *testing.T) {
 		m.onTypingStart(&gateway.TypingStartEvent{ChannelID: cid, UserID: 2}) // success branch
 	})
 
-	t.Run("onMessageDelete_CursorMapping", func(t *testing.T) {
-		cid := discord.ChannelID(123)
-		m.SetSelectedChannel(&discord.Channel{ID: cid})
+		t.Run("onMessageDelete_CursorMapping", func(t *testing.T) {
+			oldQueueUpdateDraw := queueUpdateDraw
+			queueCalls := 0
+			queueUpdateDraw = func(_ *tview.Application, f func()) {
+				queueCalls++
+				f()
+			}
+			t.Cleanup(func() { queueUpdateDraw = oldQueueUpdateDraw })
+
+			cid := discord.ChannelID(123)
+			m.SetSelectedChannel(&discord.Channel{ID: cid})
 		
 		// 1. prevCursor == deletedIndex, newCursor = deletedIndex - 1
-		m.messagesList.messages = []discord.Message{{ID: 1}, {ID: 2}}
-		m.messagesList.SetCursor(1)
-		m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 2, ChannelID: cid})
-		
-		// 2. prevCursor == deletedIndex == 0, newCursor = deletedIndex (if len > 0) -> newCursor == prevCursor
-		m.messagesList.messages = []discord.Message{{ID: 3}, {ID: 4}}
-		m.messagesList.SetCursor(0)
-		m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 3, ChannelID: cid})
+			m.messagesList.setMessages([]discord.Message{{ID: 1}, {ID: 2}})
+			m.messagesList.SetCursor(1)
+			m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 2, ChannelID: cid})
+			
+			// 2. prevCursor == deletedIndex == 0, newCursor = deletedIndex (if len > 0) -> newCursor == prevCursor
+			m.messagesList.setMessages([]discord.Message{{ID: 3}, {ID: 4}})
+			m.messagesList.SetCursor(0)
+			m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 3, ChannelID: cid})
 
-		// 3. prevCursor == deletedIndex == 0, newCursor = -1 (if len == 0)
-		m.messagesList.messages = []discord.Message{{ID: 5}}
-		m.messagesList.SetCursor(0)
-		m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 5, ChannelID: cid})
+			// 3. prevCursor == deletedIndex == 0, newCursor = -1 (if len == 0)
+			m.messagesList.setMessages([]discord.Message{{ID: 5}})
+			m.messagesList.SetCursor(0)
+			m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 5, ChannelID: cid})
 
-		// 4. prevCursor > deletedIndex
-		m.messagesList.messages = []discord.Message{{ID: 6}, {ID: 7}}
-		m.messagesList.SetCursor(1)
-		m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 6, ChannelID: cid})
-		
-		// 5. deletedIndex < 0 (not found)
-		m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 99, ChannelID: cid})
-	})
+			// 4. prevCursor > deletedIndex
+			m.messagesList.setMessages([]discord.Message{{ID: 6}, {ID: 7}})
+			m.messagesList.SetCursor(1)
+			beforeCalls := queueCalls
+			m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 6, ChannelID: cid})
+			if got := queueCalls - beforeCalls; got != 2 {
+				t.Fatalf("expected delete+cursor update callbacks after deleting an earlier message, got %d", got)
+			}
+			
+			// 5. deletedIndex < 0 (not found)
+			m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 99, ChannelID: cid})
+		})
 
 	t.Run("onReady", func(t *testing.T) {
 		ev := &gateway.ReadyEvent{
@@ -148,6 +176,7 @@ func TestState_Events(t *testing.T) {
 
 	t.Run("onRequest", func(t *testing.T) {
 		m.onRequest(&httpdriver.DefaultRequest{})
+		m.onRequest(dummyRequest{})
 	})
 
 	t.Run("onMessageCreate_Notify", func(t *testing.T) {
@@ -156,6 +185,24 @@ func TestState_Events(t *testing.T) {
 			Message: discord.Message{
 				ID:        1,
 				ChannelID: 456, // mismatch
+				Author:    discord.User{ID: 2},
+			},
+		}
+		m.onMessageCreate(ev)
+	})
+
+	t.Run("onMessageCreate_NotifyError", func(t *testing.T) {
+		oldNotifyMessage := notifyMessage
+		t.Cleanup(func() { notifyMessage = oldNotifyMessage })
+		notifyMessage = func(*ningen.State, *gateway.MessageCreateEvent, *config.Config) error {
+			return errors.New("notify fail")
+		}
+
+		m.SetSelectedChannel(&discord.Channel{ID: 123})
+		ev := &gateway.MessageCreateEvent{
+			Message: discord.Message{
+				ID:        2,
+				ChannelID: 456,
 				Author:    discord.User{ID: 2},
 			},
 		}

@@ -8,24 +8,31 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
 	"os"
 
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"golang.org/x/sys/unix"
 )
 
-func main() {
-	if !imgpkg.IsKittySupported() {
-		fmt.Fprintln(os.Stderr, "Terminal does not appear to support Kitty graphics protocol.")
-		fmt.Fprintln(os.Stderr, "Set TERM_PROGRAM=kitty (or wezterm/ghostty) to override.")
-		os.Exit(1)
+type deps struct {
+	isKittySupported func() bool
+	ioctlGetWinsize  func(int, uint) (*unix.Winsize, error)
+	encodeKitty      func(io.Writer, image.Image, int, int, int, int) error
+	deleteAllKitty   func(io.Writer) error
+}
+
+func run(stdout, stderr io.Writer, stdin io.Reader, d deps) int {
+	if !d.isKittySupported() {
+		fmt.Fprintln(stderr, "Terminal does not appear to support Kitty graphics protocol.")
+		fmt.Fprintln(stderr, "Set TERM_PROGRAM=kitty (or wezterm/ghostty) to override.")
+		return 1
 	}
 
-	// Query cell dimensions via ioctl.
-	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	ws, err := d.ioctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ioctl TIOCGWINSZ: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "ioctl TIOCGWINSZ: %v\n", err)
+		return 1
 	}
 
 	cols := int(ws.Col)
@@ -34,8 +41,8 @@ func main() {
 	ypixel := int(ws.Ypixel)
 
 	if cols == 0 || rows == 0 {
-		fmt.Fprintln(os.Stderr, "Could not determine terminal size.")
-		os.Exit(1)
+		fmt.Fprintln(stderr, "Could not determine terminal size.")
+		return 1
 	}
 
 	cellW := 0
@@ -45,21 +52,20 @@ func main() {
 		cellH = ypixel / rows
 	}
 
-	fmt.Printf("Terminal: %dx%d cells, %dx%d pixels\n", cols, rows, xpixel, ypixel)
-	fmt.Printf("Cell size: %dx%d pixels\n", cellW, cellH)
+	fmt.Fprintf(stdout, "Terminal: %dx%d cells, %dx%d pixels\n", cols, rows, xpixel, ypixel)
+	fmt.Fprintf(stdout, "Cell size: %dx%d pixels\n", cellW, cellH)
 
 	if cellW == 0 || cellH == 0 {
-		fmt.Fprintln(os.Stderr, "Cell pixel dimensions are zero — terminal may not report pixel size.")
-		os.Exit(1)
+		fmt.Fprintln(stderr, "Cell pixel dimensions are zero — terminal may not report pixel size.")
+		return 1
 	}
 
-	// Generate a gradient test image (16x8 cells).
 	imgCols := min(16, cols-2)
 	imgRows := min(8, rows-4)
 	imgW := imgCols * cellW
 	imgH := imgRows * cellH
 
-	fmt.Printf("Image: %dx%d cells (%dx%d pixels)\n", imgCols, imgRows, imgW, imgH)
+	fmt.Fprintf(stdout, "Image: %dx%d cells (%dx%d pixels)\n", imgCols, imgRows, imgW, imgH)
 
 	img := image.NewRGBA(image.Rect(0, 0, imgW, imgH))
 	for y := range imgH {
@@ -71,19 +77,27 @@ func main() {
 		}
 	}
 
-	// Encode and send via Kitty protocol.
-	fmt.Println("Sending image via Kitty a=T ...")
-	if err := imgpkg.EncodeKitty(os.Stdout, img, imgCols, imgRows, cellW, cellH); err != nil {
-		fmt.Fprintf(os.Stderr, "\nEncodeKitty error: %v\n", err)
-		os.Exit(1)
+	fmt.Fprintln(stdout, "Sending image via Kitty a=T ...")
+	if err := d.encodeKitty(stdout, img, imgCols, imgRows, cellW, cellH); err != nil {
+		fmt.Fprintf(stderr, "\nEncodeKitty error: %v\n", err)
+		return 1
 	}
-	fmt.Println()
-	fmt.Println("If you see a gradient above, Kitty graphics protocol is working.")
-	fmt.Print("Press Enter to clean up and exit...")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "If you see a gradient above, Kitty graphics protocol is working.")
+	fmt.Fprint(stdout, "Press Enter to clean up and exit...")
 
-	bufio.NewReader(os.Stdin).ReadLine()
+	bufio.NewReader(stdin).ReadLine()
 
-	// Clean up all Kitty images.
-	_ = imgpkg.DeleteAllKitty(os.Stdout)
-	fmt.Println("\nDone.")
+	_ = d.deleteAllKitty(stdout)
+	fmt.Fprintln(stdout, "\nDone.")
+	return 0
+}
+
+func main() {
+	os.Exit(run(os.Stdout, os.Stderr, os.Stdin, deps{
+		isKittySupported: imgpkg.IsKittySupported,
+		ioctlGetWinsize:  unix.IoctlGetWinsize,
+		encodeKitty:      imgpkg.EncodeKitty,
+		deleteAllKitty:   imgpkg.DeleteAllKitty,
+	}))
 }

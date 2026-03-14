@@ -29,6 +29,10 @@ var (
 	openNingenState = func(st *ningen.State) error {
 		return st.Open(context.Background())
 	}
+	notifyMessage = notifications.Notify
+	queueUpdateDraw = func(app *tview.Application, f func()) {
+		app.QueueUpdateDraw(f)
+	}
 )
 
 func (v *Model) OpenState(token string) error {
@@ -166,7 +170,7 @@ func (v *Model) onMessageCreate(message *gateway.MessageCreateEvent) {
 			v.messagesList.addMessage(message.Message)
 		})
 	} else {
-		if err := notifications.Notify(v.state, message, v.cfg); err != nil {
+		if err := notifyMessage(v.state, message, v.cfg); err != nil {
 			slog.Error("failed to notify", "err", err, "channel_id", message.ChannelID, "message_id", message.ID)
 		}
 	}
@@ -181,9 +185,9 @@ func (v *Model) onMessageUpdate(message *gateway.MessageUpdateEvent) {
 			return
 		}
 
-		v.app.QueueUpdateDraw(func() {
-			v.messagesList.setMessage(index, message.Message)
-		})
+			queueUpdateDraw(v.app, func() {
+				v.messagesList.setMessage(index, message.Message)
+			})
 	}
 }
 
@@ -197,9 +201,9 @@ func (v *Model) onMessageDelete(message *gateway.MessageDeleteEvent) {
 			return
 		}
 
-		v.app.QueueUpdateDraw(func() {
-			v.messagesList.deleteMessage(deletedIndex)
-		})
+			queueUpdateDraw(v.app, func() {
+				v.messagesList.deleteMessage(deletedIndex)
+			})
 
 		// Keep cursor stable when possible after removal.
 		newCursor := prevCursor
@@ -219,9 +223,9 @@ func (v *Model) onMessageDelete(message *gateway.MessageDeleteEvent) {
 		}
 		if newCursor != prevCursor {
 			// Avoid redundant cursor updates if nothing changed.
-			v.app.QueueUpdateDraw(func() {
-				v.messagesList.SetCursor(newCursor)
-			})
+				queueUpdateDraw(v.app, func() {
+					v.messagesList.SetCursor(newCursor)
+				})
 		}
 	}
 }

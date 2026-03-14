@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -115,6 +116,11 @@ func TestRendererRenderLinesFencedCodeBlockHeaders(t *testing.T) {
 			wantContain: codeBlockIndent + "code: notreal",
 		},
 		{
+			name:        "analyzed language shows analyzed header",
+			source:      "```notreal\npackage main\n```",
+			wantContain: codeBlockIndent + "code: analyzed",
+		},
+		{
 			name:       "known language omits fallback header",
 			source:     "```go\npackage main\n```",
 			wantAbsent: codeBlockIndent + "code",
@@ -135,6 +141,41 @@ func TestRendererRenderLinesFencedCodeBlockHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRendererRenderLinesFencedCodeBlockFallbacks(t *testing.T) {
+	cfg, _ := config.Load("")
+	r := NewRenderer(cfg)
+
+	t.Run("tokenise failure falls back to plain indented lines", func(t *testing.T) {
+		oldTokeniseCodeBlock := tokeniseCodeBlock
+		t.Cleanup(func() { tokeniseCodeBlock = oldTokeniseCodeBlock })
+		tokeniseCodeBlock = func(chroma.Lexer, string) (chroma.Iterator, error) {
+			return nil, errors.New("boom")
+		}
+
+		source := []byte("```go\nfmt.Println(\"hi\")\n```")
+		root := goldmark.New().Parser().Parse(text.NewReader(source))
+		lines := r.RenderLines(source, root, tcell.StyleDefault)
+		flat := flattenRenderedText(lines)
+		if !strings.Contains(flat, codeBlockIndent+"fmt.Println(\"hi\")") {
+			t.Fatalf("expected tokenise fallback to emit raw indented code, got %q", flat)
+		}
+	})
+
+	t.Run("missing theme falls back to chroma fallback theme", func(t *testing.T) {
+		oldGetMarkdownTheme := getMarkdownTheme
+		t.Cleanup(func() { getMarkdownTheme = oldGetMarkdownTheme })
+		getMarkdownTheme = func(string) *chroma.Style { return nil }
+
+		source := []byte("```go\npackage main\n```")
+		root := goldmark.New().Parser().Parse(text.NewReader(source))
+		lines := r.RenderLines(source, root, tcell.StyleDefault)
+		flat := flattenRenderedText(lines)
+		if !strings.Contains(flat, "package main") {
+			t.Fatalf("expected fallback theme rendering to preserve code text, got %q", flat)
+		}
+	})
 }
 
 func TestApplyChromaStyle(t *testing.T) {

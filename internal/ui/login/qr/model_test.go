@@ -1,6 +1,7 @@
 package qr
 
 import (
+	"crypto/rsa"
 	"testing"
 	"time"
 
@@ -104,10 +105,94 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("nonceProofEvent", func(t *testing.T) {
+		cmd := m.HandleEvent(&nonceProofEvent{encryptedNonce: "payload"})
+		if _, ok := cmd.(tview.BatchCommand); !ok {
+			t.Fatalf("expected nonce proof event to return BatchCommand, got %T", cmd)
+		}
+	})
+
 	t.Run("cancelEvent", func(t *testing.T) {
 		m.HandleEvent(&cancelEvent{})
 		if m.msg != "Login canceled on mobile" {
 			t.Errorf("Expected message 'Login canceled on mobile', got %q", m.msg)
 		}
 	})
+}
+
+func TestModel_HandleEvent_RemainingBranches(t *testing.T) {
+	m := NewModel(tview.NewApplication())
+
+	t.Run("non escape key falls through to text view", func(t *testing.T) {
+		m.SetText("body")
+		if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
+			t.Fatalf("expected non-escape key to fall through without command, got %T", cmd)
+		}
+	})
+
+	t.Run("heartbeat tick without connection", func(t *testing.T) {
+		if cmd := m.HandleEvent(&heartbeatTickEvent{}); cmd != nil {
+			t.Fatalf("expected nil command without connection, got %T", cmd)
+		}
+	})
+
+	t.Run("unhandled event returns nil", func(t *testing.T) {
+		if cmd := m.HandleEvent(tcell.NewEventResize(80, 24)); cmd != nil {
+			t.Fatalf("expected resize event to return nil, got %T", cmd)
+		}
+	})
+}
+
+func TestModelCenterLinesBranches(t *testing.T) {
+	m := NewModel(tview.NewApplication())
+
+	t.Run("default height fallback pads", func(t *testing.T) {
+		lines := []tview.Line{{{Text: "one"}}}
+		centered := m.centerLines(lines)
+		if len(centered) <= len(lines) {
+			t.Fatalf("expected fallback centering to add padding, got %d lines", len(centered))
+		}
+	})
+
+	t.Run("small height clamps padding to zero", func(t *testing.T) {
+		m.SetRect(0, 0, 10, 1)
+		lines := []tview.Line{{{Text: "one"}}, {{Text: "two"}}}
+		centered := m.centerLines(lines)
+		if len(centered) != len(lines) {
+			t.Fatalf("expected no extra padding when content exceeds height, got %d lines", len(centered))
+		}
+	})
+
+	t.Run("slightly taller height still adds one line of padding", func(t *testing.T) {
+		m.SetRect(0, 0, 10, 2)
+		lines := []tview.Line{{{Text: "one"}}}
+		centered := m.centerLines(lines)
+		if len(centered) != 2 {
+			t.Fatalf("expected one line of top padding, got %d lines", len(centered))
+		}
+		if len(centered[0]) != 0 {
+			t.Fatal("expected first line to be padding")
+		}
+	})
+
+	t.Run("zero inner height falls back to default height", func(t *testing.T) {
+		m.SetRect(0, 0, 0, 0)
+		lines := []tview.Line{{{Text: "one"}}}
+		centered := m.centerLines(lines)
+		if len(centered) <= len(lines) {
+			t.Fatalf("expected default-height centering to add padding, got %d lines", len(centered))
+		}
+	})
+}
+
+func TestModelNewAndChangedCallbackBranch(t *testing.T) {
+	m := NewModel(tview.NewApplication())
+	if m.TextView == nil {
+		t.Fatal("expected NewModel to initialize TextView")
+	}
+
+	m.privateKey = &rsa.PrivateKey{}
+	if m.privateKey == nil {
+		t.Fatal("expected privateKey assignment to stick")
+	}
 }

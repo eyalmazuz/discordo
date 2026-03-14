@@ -95,3 +95,31 @@ func TestLoad(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyDefaultsDateSeparatorFallbacks(t *testing.T) {
+	t.Run("default editor uses EDITOR env", func(t *testing.T) {
+		t.Setenv("EDITOR", "nvim")
+		cfg := Config{Editor: "default"}
+		applyDefaults(&cfg)
+		if cfg.Editor != "nvim" {
+			t.Fatalf("editor = %q, want %q", cfg.Editor, "nvim")
+		}
+	})
+
+	t.Run("empty date separator character falls back to default rune", func(t *testing.T) {
+		cfg := Config{}
+		applyDefaults(&cfg)
+		if cfg.DateSeparator.Character != "─" {
+			t.Fatalf("character = %q, want default separator", cfg.DateSeparator.Character)
+		}
+	})
+
+	t.Run("invalid date separator rune falls back to default rune", func(t *testing.T) {
+		cfg := Config{}
+		cfg.DateSeparator.Character = string([]byte{0xff})
+		applyDefaults(&cfg)
+		if cfg.DateSeparator.Character != "─" {
+			t.Fatalf("character = %q, want default separator", cfg.DateSeparator.Character)
+		}
+	})
+}

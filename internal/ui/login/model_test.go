@@ -96,3 +96,36 @@ func TestLoginModelHandleEventErrorAndModal(t *testing.T) {
 	}
 }
 
+func TestSetClipboardError(t *testing.T) {
+	oldWriteClipboard := writeClipboard
+	t.Cleanup(func() {
+		writeClipboard = oldWriteClipboard
+	})
+
+	writeClipboard = func(format clipkg.Format, data []byte) error {
+		if format != clipkg.FmtText {
+			t.Fatalf("expected text clipboard format, got %v", format)
+		}
+		if string(data) != "boom" {
+			t.Fatalf("expected clipboard payload %q, got %q", "boom", string(data))
+		}
+		return errors.New("copy failed")
+	}
+
+	cmd, ok := setClipboard("boom").(tview.EventCommand)
+	if !ok {
+		t.Fatalf("expected setClipboard to return EventCommand, got %T", setClipboard("boom"))
+	}
+
+	event := cmd()
+	if _, ok := event.(*tcell.EventError); !ok {
+		t.Fatalf("expected clipboard failure to surface as EventError, got %T", event)
+	}
+}
+
+func TestLoginModelHandleEventFallsBackToLayers(t *testing.T) {
+	m := newTestLoginModel(t)
+	if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected regular key events to be delegated to layers, got %T", cmd)
+	}
+}

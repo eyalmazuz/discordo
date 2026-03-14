@@ -1,11 +1,14 @@
 package chat
 
 import (
+	"reflect"
 	"testing"
+	"unsafe"
 
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/pkg/picker"
+	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
@@ -14,6 +17,20 @@ import (
 type emojiURLScreen struct {
 	completeMockScreen
 	url string
+}
+
+func reactionPickerPrivateField[T any](t *testing.T, rp *reactionPicker, name string) T {
+	t.Helper()
+
+	field := reflect.ValueOf(rp.Picker).Elem().FieldByName(name)
+	if !field.IsValid() {
+		t.Fatalf("picker field %q not found", name)
+	}
+	if !field.CanAddr() {
+		t.Fatalf("picker field %q is not addressable", name)
+	}
+
+	return *(*T)(unsafe.Pointer(field.UnsafeAddr()))
 }
 
 func (s *emojiURLScreen) Get(x, y int) (string, tcell.Style, int) {
@@ -58,6 +75,13 @@ func TestReactionPickerSetItemsAndHelp(t *testing.T) {
 	}
 	if customLine[1].Text != " "+items[1].Name {
 		t.Fatalf("unexpected custom emoji label %q", customLine[1].Text)
+	}
+
+	setFocus := reactionPickerPrivateField[func(tview.Primitive)](t, rp, "setFocus")
+	list := reactionPickerPrivateField[*tview.List](t, rp, "list")
+	setFocus(list)
+	if m.app.GetFocus() != list {
+		t.Fatalf("expected picker focus callback to delegate to the app")
 	}
 }
 
@@ -195,4 +219,12 @@ func TestReactionPickerErrorAndEarlyReturnBranches(t *testing.T) {
 	m.cfg.InlineImages.Enabled = true
 	m.messagesList.useKitty = true
 	rp.AfterDraw(&completeMockScreen{})
+
+	screen := &emojiURLScreen{url: "https://cdn.discordapp.com/emojis/123.png"}
+	before := len(rp.emoteItemByKey)
+	m.cfg.InlineImages.Enabled = false
+	rp.scanAndDrawEmotes(screen)
+	if got := len(rp.emoteItemByKey); got != before {
+		t.Fatalf("expected disabled inline images to skip preview creation, got %d items", got)
+	}
 }

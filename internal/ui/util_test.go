@@ -1,11 +1,16 @@
 package ui
 
 import (
+	"reflect"
 	"testing"
+	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/ningen/v3"
+	"github.com/diamondburned/ningen/v3/states/relationship"
+	"github.com/diamondburned/arikawa/v3/utils/json/option"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -75,8 +80,31 @@ func TestChannelToString(t *testing.T) {
 		t.Fatalf("ChannelToString(group DM) = %q, want carol", got)
 	}
 
+	stateWithFriendNick := &ningen.State{RelationshipState: &relationship.State{}}
+	relationshipsField := reflect.ValueOf(stateWithFriendNick.RelationshipState).Elem().FieldByName("relationships")
+	reflect.NewAt(relationshipsField.Type(), unsafe.Pointer(relationshipsField.UnsafeAddr())).Elem().Set(
+		reflect.ValueOf(map[discord.UserID]discord.Relationship{
+			7: {
+				UserID:   7,
+				Type:     discord.FriendRelationship,
+				Nickname: option.NewString("bestie"),
+			},
+		}),
+	)
+	dmWithNick := discord.Channel{
+		Type:         discord.DirectMessage,
+		DMRecipients: []discord.User{{ID: 7, Username: "alice"}},
+	}
+	if got := ChannelToString(dmWithNick, icons, stateWithFriendNick); got != "bestie" {
+		t.Fatalf("ChannelToString(friend nickname) = %q, want %q", got, "bestie")
+	}
+
 	if got := ChannelToString(discord.Channel{Type: discord.GuildText, Name: "general"}, icons, nil); got != "#general" {
 		t.Fatalf("ChannelToString(guild text) = %q, want #general", got)
+	}
+
+	if got := ChannelToString(discord.Channel{Type: discord.GuildDirectory, Name: "mystery"}, icons, nil); got != "mystery" {
+		t.Fatalf("ChannelToString(unknown type) = %q, want mystery", got)
 	}
 
 	cases := []struct {

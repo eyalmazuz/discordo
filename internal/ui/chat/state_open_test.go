@@ -69,6 +69,7 @@ func TestModelOpenState(t *testing.T) {
 	if built.StateLog == nil {
 		t.Fatal("expected OpenState to install a state logger")
 	}
+	built.StateLog(errors.New("state-log"))
 	if len(built.OnRequest) == 0 {
 		t.Fatal("expected OpenState to register request middleware")
 	}
@@ -102,4 +103,24 @@ func TestModelOpenStateReturnsOpenError(t *testing.T) {
 	if err := m.OpenState("token-123"); !errors.Is(err, sentinel) {
 		t.Fatalf("expected OpenState to return %v, got %v", sentinel, err)
 	}
+}
+
+func TestNewOpenStateDefaultBuilder(t *testing.T) {
+	state := newOpenState("token-xyz", gateway.DefaultIdentifier("token-xyz"))
+	if state == nil {
+		t.Fatal("expected default state builder to return a state")
+	}
+}
+
+func TestOpenNingenStateDefaultWrapperPanicsOnNil(t *testing.T) {
+	defaultOpen := openNingenState
+	defer func() { openNingenState = defaultOpen }()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected default openNingenState wrapper to panic on nil state")
+		}
+	}()
+
+	defaultOpen(nil)
 }

@@ -173,3 +173,16 @@ func TestRun(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultRunAppWrapperPanicsOnNil(t *testing.T) {
+	defaultRunApp := runApp
+	defer func() { runApp = defaultRunApp }()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected default runApp wrapper to panic on nil app")
+		}
+	}()
+
+	_ = defaultRunApp(nil)
+}

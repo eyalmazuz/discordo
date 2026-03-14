@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -480,4 +481,149 @@ func TestMessageSearchPopupHandleEvent_NonKeyFallsBackToFlex(t *testing.T) {
 	if cmd := sp.HandleEvent(&tview.MouseEvent{}); cmd != nil {
 		t.Fatalf("expected non-key event to fall back without issuing a command, got %T", cmd)
 	}
+}
+
+func TestMessageSearchPopupAdditionalBranches(t *testing.T) {
+	t.Run("handle event covers up down and g shortcuts", func(t *testing.T) {
+		m := newMockChatModel()
+		channel := discord.Channel{ID: 200, GuildID: 100, Type: discord.GuildText, Name: "general"}
+		sp := newMessageSearchPopup(m.cfg, m, m.messagesList)
+		sp.Prepare(channel, m.messageInput)
+		sp.setResults([]messageSearchResult{
+			{Message: discord.Message{ID: 1, ChannelID: channel.ID, Content: "first", Timestamp: discord.NewTimestamp(time.Unix(0, 0)), Author: discord.User{Username: "one"}}},
+			{Message: discord.Message{ID: 2, ChannelID: channel.ID, Content: "second", Timestamp: discord.NewTimestamp(time.Unix(0, 0)), Author: discord.User{Username: "two"}}},
+		})
+		m.AddLayer(sp, layers.WithName(messageSearchLayerName), layers.WithVisible(true))
+		sp.list.Focus(nil)
+		m.app.SetFocus(sp.list)
+
+		for _, event := range []*tcell.EventKey{
+			tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone),
+			tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone),
+			tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone),
+		} {
+			if _, ok := sp.HandleEvent(event).(tview.RedrawCommand); !ok {
+				t.Fatalf("expected redraw for event %v", event)
+			}
+		}
+	})
+
+	t.Run("search ignores callback when input text changed", func(t *testing.T) {
+		m := newMockChatModel()
+		channel := discord.Channel{ID: 200, GuildID: 100, Type: discord.GuildText, Name: "general"}
+		sp := newMessageSearchPopup(m.cfg, m, m.messagesList)
+		sp.Prepare(channel, m.messagesList)
+		release := make(chan struct{})
+		sp.queueUpdateDraw = func(f func()) { f() }
+		sp.searchMessages = func(discord.Channel, string) ([]messageSearchResult, error) {
+			<-release
+			return []messageSearchResult{{
+				Message: discord.Message{
+					ID:        1,
+					ChannelID: channel.ID,
+					GuildID:   channel.GuildID,
+					Content:   "needle",
+					Timestamp: discord.NewTimestamp(time.Unix(0, 0)),
+					Author:    discord.User{Username: "user"},
+				},
+			}}, nil
+		}
+
+		sp.input.SetText("needle")
+		sp.search()
+		sp.input.SetText("changed")
+		close(release)
+		time.Sleep(10 * time.Millisecond)
+		if len(sp.results) != 0 {
+			t.Fatalf("expected changed input to suppress stale callback results, got %+v", sp.results)
+		}
+	})
+
+	t.Run("fetchSearchResults handles empty pages invalid groups and errors", func(t *testing.T) {
+		jsonResponse := func(v any) (*http.Response, error) {
+			data, err := json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(data)),
+				Header:     make(http.Header),
+			}, nil
+		}
+
+		transport := &mockTransport{}
+		m := newTestModelWithTransport(transport)
+		sp := newMessageSearchPopup(m.cfg, m, m.messagesList)
+
+		transport.roundTrip = func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path != "/api/v9/channels/300/messages/search" {
+				t.Fatalf("unexpected search path %q", req.URL.Path)
+			}
+			switch req.URL.Query().Get("content") {
+			case "bad":
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Body:       io.NopCloser(strings.NewReader(`{"message":"boom"}`)),
+					Header:     make(http.Header),
+				}, nil
+			case "empty":
+				return jsonResponse(api.SearchResponse{})
+			default:
+				return jsonResponse(api.SearchResponse{
+					Messages: [][]discord.Message{
+						{{ID: 0, ChannelID: 300, Content: "invalid"}},
+						{{ID: 1, ChannelID: 999, Content: "wrong channel"}},
+					},
+					TotalResults: 2,
+				})
+			}
+		}
+
+		if results, err := sp.fetchSearchResults(discord.Channel{ID: 300, Type: discord.DirectMessage}, "empty"); err != nil || len(results) != 0 {
+			t.Fatalf("expected empty search page to return no results, got results=%+v err=%v", results, err)
+		}
+		if results, err := sp.fetchSearchResults(discord.Channel{ID: 300, Type: discord.DirectMessage}, "filtered"); err != nil || len(results) != 0 {
+			t.Fatalf("expected invalid search groups to be skipped, got results=%+v err=%v", results, err)
+		}
+		if _, err := sp.fetchSearchResults(discord.Channel{ID: 300, Type: discord.DirectMessage}, "bad"); err == nil {
+			t.Fatal("expected DM search error to be returned")
+		}
+	})
+
+	t.Run("selectCurrent uses default jump and enqueueUpdateDraw uses app", func(t *testing.T) {
+		transport := &mockTransport{
+			messages: []discord.Message{{ID: 500, ChannelID: 200, Content: "target", Author: discord.User{ID: 1, Username: "me"}}},
+		}
+		m := newTestModelWithTransport(transport)
+		channel := discord.Channel{ID: 200, Type: discord.DirectMessage, Name: "dm"}
+		m.SetSelectedChannel(&channel)
+		sp := newMessageSearchPopup(m.cfg, m, m.messagesList)
+		m.messageSearch = sp
+		sp.Prepare(channel, m.messageInput)
+		sp.results = []messageSearchResult{{
+			Message: discord.Message{
+				ID:        500,
+				ChannelID: channel.ID,
+				Content:   "target",
+				Timestamp: discord.NewTimestamp(time.Unix(0, 0)),
+				Author:    discord.User{Username: "me"},
+			},
+		}}
+		sp.list.SetCursor(0)
+		m.AddLayer(sp, layers.WithName(messageSearchLayerName), layers.WithVisible(true))
+
+		done := make(chan struct{}, 1)
+		sp.enqueueUpdateDraw(func() { done <- struct{}{} })
+		select {
+		case <-done:
+		case <-time.After(300 * time.Millisecond):
+			t.Fatal("expected enqueueUpdateDraw default app path to run callback")
+		}
+
+		sp.selectCurrent()
+		if m.HasLayer(messageSearchLayerName) {
+			t.Fatal("expected default jump path to close the popup")
+		}
+	})
 }

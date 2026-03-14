@@ -60,6 +60,8 @@ var (
 	wsReadMessage    = func(conn *websocket.Conn) (int, []byte, error) { return conn.ReadMessage() }
 	wsWriteJSON      = func(conn *websocket.Conn, v any) error { return conn.WriteJSON(v) }
 	wsClose          = func(conn *websocket.Conn) error { return conn.Close() }
+	rsaGenerateKey   = rsa.GenerateKey
+	qrCodeNew        = qrcode.New
 	exchangeTicketFn = func(client *api.Client, ticket string) (string, error) {
 		return client.ExchangeRemoteAuthTicket(ticket)
 	}
@@ -263,7 +265,7 @@ func newPrivateKeyEvent(privateKey *rsa.PrivateKey) *privateKeyEvent {
 
 func (m *Model) generatePrivateKey() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
-		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		privateKey, err := rsaGenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}
@@ -330,7 +332,7 @@ func newQRCodeEvent(qrCode *qrcode.QRCode) *qrCodeEvent {
 func (m *Model) generateQRCode(fingerprint string) tview.Command {
 	return tview.EventCommand(func() tcell.Event {
 		content := "https://discord.com/ra/" + fingerprint
-		qrCode, err := qrcode.New(content, qrcode.Low)
+		qrCode, err := qrCodeNew(content, qrcode.Low)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}

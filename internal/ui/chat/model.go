@@ -19,6 +19,8 @@ import (
 
 const typingDuration = 10 * time.Second
 
+var typingAfterFunc = time.AfterFunc
+
 const (
 	flexLayerName            = "flex"
 	mentionsListLayerName    = "mentionsList"
@@ -423,7 +425,7 @@ func (v *Model) addTyper(userID discord.UserID) {
 	if ok {
 		typer.Reset(typingDuration)
 	} else {
-		v.typers[userID] = time.AfterFunc(typingDuration, func() {
+		v.typers[userID] = typingAfterFunc(typingDuration, func() {
 			v.removeTyper(userID)
 		})
 	}

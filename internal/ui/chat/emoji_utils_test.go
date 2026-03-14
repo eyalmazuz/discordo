@@ -65,4 +65,39 @@ func TestAvailableEmojisForChannel(t *testing.T) {
 			t.Fatalf("expected current guild emoji then other guild emoji, got %#v", emojis)
 		}
 	})
+
+	t.Run("nitro user with unavailable guild list keeps current guild emojis", func(t *testing.T) {
+		m := newTestModel()
+		channel := &discord.Channel{ID: 10, GuildID: 100, Type: discord.GuildText}
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me", Nitro: discord.NitroFull}, true)
+		m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{{ID: 1, Name: "guild"}}, false)
+
+		emojis := availableEmojisForChannel(m.state, channel)
+		if len(emojis) != 1 || emojis[0].ID != 1 {
+			t.Fatalf("expected current guild emojis to be preserved when guild list is unavailable, got %#v", emojis)
+		}
+	})
+
+	t.Run("current guild fetch failure returns no emojis", func(t *testing.T) {
+		transport := &mockTransport{}
+		m := newTestModelWithTransport(transport)
+		channel := &discord.Channel{ID: 10, GuildID: 100, Type: discord.GuildText}
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me", Nitro: discord.NoUserNitro}, true)
+
+		transport.roundTrip = func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path != "/api/v9/guilds/100/emojis" {
+				t.Fatalf("unexpected emoji fetch path %q", req.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(bytes.NewReader([]byte(`{"message":"boom"}`))),
+				Header:     make(http.Header),
+			}, nil
+		}
+
+		emojis := availableEmojisForChannel(m.state, channel)
+		if len(emojis) != 0 {
+			t.Fatalf("expected fetch failure to return no emojis, got %#v", emojis)
+		}
+	})
 }

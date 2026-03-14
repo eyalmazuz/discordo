@@ -116,6 +116,39 @@ func TestMessageInputSendAndEditBranches(t *testing.T) {
 	}
 }
 
+func TestMessageInputSendEarlyReturns(t *testing.T) {
+	t.Run("no selected channel", func(t *testing.T) {
+		m := newTestModelWithTransport(&mockTransport{})
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		mi.SetText("hello", true)
+
+		mi.send()
+
+		if mi.GetText() != "hello" {
+			t.Fatalf("expected text to remain unchanged without selected channel, got %q", mi.GetText())
+		}
+	})
+
+	t.Run("empty text and no files", func(t *testing.T) {
+		transport := &mockTransport{}
+		m := newTestModelWithTransport(transport)
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		m.SetSelectedChannel(&discord.Channel{ID: 123, Type: discord.DirectMessage})
+		mi.SetText("   ", true)
+
+		mi.send()
+
+		if transport.method != "" || transport.path != "" {
+			t.Fatalf("expected no request for empty send, got %s %s", transport.method, transport.path)
+		}
+		if mi.GetText() != "   " {
+			t.Fatalf("expected empty-send text to remain unchanged, got %q", mi.GetText())
+		}
+	})
+}
+
 func TestMessageInputExpandMentionsAndProcessText(t *testing.T) {
 	m := newTestModel()
 	mi := m.messageInput
@@ -438,10 +471,13 @@ func TestMessageInputClipboardEditorPickerAndHandleEvent(t *testing.T) {
 	mi.SetText("@al", true)
 	mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
 	mi.mentionsList.rebuild()
-	mi.chat.ShowLayer(mentionsListLayerName)
-	mi.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	mi.chat.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
+	if !mi.chat.GetVisible(mentionsListLayerName) {
+		t.Fatal("expected mentions list to be visible")
+	}
+	mi.tabComplete()
 	if mi.GetText() != "@alice " {
-		t.Fatalf("expected Enter with mentions list to tab-complete, got %q", mi.GetText())
+		t.Fatalf("expected visible mentions list to tab-complete, got %q", mi.GetText())
 	}
 
 	mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
@@ -869,4 +905,392 @@ func TestMessageInputSearchMemberPrefixLimitFallsThroughToLiveSearch(t *testing.
 	if got := mi.cache.Get(key); got != 3 {
 		t.Fatalf("expected live-search cache count %d, got %d", 3, got)
 	}
+}
+
+func TestMessageInputSendFailureAndEventEdgeBranches(t *testing.T) {
+	t.Run("send and edit failures still exercise error branches", func(t *testing.T) {
+		transport := &mockTransport{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/messages") {
+					return nil, errors.New("send fail")
+				}
+				if req.Method == http.MethodPatch && strings.Contains(req.URL.Path, "/messages/") {
+					return &http.Response{
+						StatusCode: http.StatusBadRequest,
+						Body:       io.NopCloser(strings.NewReader(`{"message":"edit fail"}`)),
+						Header:     make(http.Header),
+					}, nil
+				}
+				return (&mockTransport{}).RoundTrip(req)
+			},
+		}
+		m := newTestModelWithTransport(transport)
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		channel := &discord.Channel{ID: 222, Type: discord.DirectMessage}
+		m.SetSelectedChannel(channel)
+
+		mi.SetText("hello", true)
+		mi.send()
+		if transport.method != http.MethodPost || !strings.Contains(transport.path, "/channels/222/messages") {
+			t.Fatalf("expected send attempt to hit messages endpoint, got %s %s", transport.method, transport.path)
+		}
+		if mi.GetText() != "" {
+			t.Fatalf("expected send failure path to still reset text, got %q", mi.GetText())
+		}
+
+		m.messagesList.setMessages([]discord.Message{{ID: 333, ChannelID: channel.ID, Author: discord.User{ID: 1, Username: "me"}}})
+		m.messagesList.SetCursor(0)
+		mi.edit = true
+		mi.SetText("edited", true)
+		mi.send()
+		if transport.method != http.MethodPatch || !strings.Contains(transport.path, "/messages/333") {
+			t.Fatalf("expected edit attempt to hit patch endpoint, got %s %s", transport.method, transport.path)
+		}
+		if mi.edit {
+			t.Fatal("expected edit flag to clear after the edit error branch runs")
+		}
+	})
+
+	t.Run("constructor clipboard write error and non-key events", func(t *testing.T) {
+		oldClipboardWrite := clipboardWrite
+		t.Cleanup(func() { clipboardWrite = oldClipboardWrite })
+		clipboardWrite = func(clipkg.Format, []byte) error { return errors.New("write fail") }
+
+		m := newTestModel()
+		mi := newMessageInput(m.cfg, m)
+		mi.SetDisabled(false)
+		mi.SetText("copy me", true)
+		mi.Select(0, len("copy me"))
+		mi.TextArea.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlQ, "", tcell.ModNone))
+		mi.HandleEvent(tcell.NewEventResize(80, 24))
+	})
+
+	t.Run("handle enter with visible mentions and typing indicator path", func(t *testing.T) {
+		transport := &mockTransport{}
+		m := newTestModelWithTransport(transport)
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		channel := &discord.Channel{ID: 444, Type: discord.DirectMessage, DMRecipients: []discord.User{{ID: 2, Username: "alice"}}}
+		m.SetSelectedChannel(channel)
+
+		mi.cfg.AutocompleteLimit = 5
+		mi.SetText("@al", true)
+		mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
+		mi.mentionsList.rebuild()
+		m.ShowLayer(mentionsListLayerName)
+		if _, ok := mi.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+			t.Fatal("expected enter with visible mentions list to redraw")
+		}
+		if got := mi.GetText(); got != "@alice " {
+			t.Fatalf("expected enter to tab-complete visible mention, got %q", got)
+		}
+		if strings.Contains(transport.path, "/messages") {
+			t.Fatalf("expected visible mentions enter path not to send a message, got %q", transport.path)
+		}
+
+		transport.method = ""
+		transport.path = ""
+		mi.cfg.TypingIndicator.Send = true
+		mi.typingTimer = nil
+		mi.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "a", tcell.ModNone))
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if strings.Contains(transport.path, "/channels/444/typing") {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !strings.Contains(transport.path, "/channels/444/typing") {
+			t.Fatalf("expected typing indicator request, got %s %s", transport.method, transport.path)
+		}
+		mi.stopTypingTimer()
+	})
+}
+
+func TestMessageInputTabCompleteSuggestionAndLayoutEdgeBranches(t *testing.T) {
+	t.Run("tab complete early returns", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+
+		mi.SetText("@al", true)
+		m.SetSelectedChannel(nil)
+		mi.tabComplete()
+		if got := mi.GetText(); got != "@al" {
+			t.Fatalf("expected missing selected channel to leave text unchanged, got %q", got)
+		}
+
+		dm := &discord.Channel{ID: 10, Type: discord.DirectMessage, DMRecipients: []discord.User{{ID: 2, Username: "alice"}}}
+		m.SetSelectedChannel(dm)
+		mi.cfg.AutocompleteLimit = 5
+		mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
+		mi.mentionsList.rebuild()
+		mi.mentionsList.SetCursor(-1)
+		mi.tabComplete()
+		if got := mi.GetText(); got != "@al" {
+			t.Fatalf("expected invalid mentions selection to leave text unchanged, got %q", got)
+		}
+	})
+
+	t.Run("tab suggestion cabinet error paths", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me"}, true)
+
+		dm := &discord.Channel{ID: 20, Type: discord.DirectMessage}
+		m.SetSelectedChannel(dm)
+		mi.SetText("@", true)
+		mi.tabSuggestion()
+		if mi.mentionsList.itemCount() != 0 {
+			t.Fatalf("expected DM recent-author lookup error to keep suggestions empty, got %d", mi.mentionsList.itemCount())
+		}
+
+		guildChannel := &discord.Channel{ID: 21, GuildID: 22, Type: discord.GuildText}
+		m.SetSelectedChannel(guildChannel)
+		mi.SetText("@", true)
+		mi.tabSuggestion()
+		if mi.mentionsList.itemCount() != 0 {
+			t.Fatalf("expected guild recent-author lookup error to keep suggestions empty, got %d", mi.mentionsList.itemCount())
+		}
+		mi.lastSearch = time.Now()
+		mi.SetText("@al", true)
+		mi.tabSuggestion()
+		if mi.mentionsList.itemCount() != 0 {
+			t.Fatalf("expected guild member lookup error to keep suggestions empty, got %d", mi.mentionsList.itemCount())
+		}
+	})
+
+	t.Run("showMentionList width and height branches", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+
+		mi.cfg.Theme.Border.Enabled = false
+		mi.cfg.Theme.MentionsList.MinWidth = 12
+		mi.cfg.Theme.MentionsList.MaxHeight = 2
+		m.messagesList.SetRect(0, 0, 18, 6)
+		mi.SetRect(4, 5, 10, 3)
+		mi.SetText("@", true)
+		mi.mentionsList.append(mentionsListItem{insertText: "averylongname", displayText: "averylongname", style: tcell.StyleDefault})
+		mi.mentionsList.append(mentionsListItem{insertText: "other", displayText: "other", style: tcell.StyleDefault})
+		mi.mentionsList.rebuild()
+
+		mi.showMentionList()
+
+		x, y, w, h := mi.mentionsList.GetRect()
+		if w != len("averylongname") {
+			t.Fatalf("expected mention list width to follow content/min-width sizing, got %d", w)
+		}
+		if h != 2 {
+			t.Fatalf("expected mention list height to respect max height, got %d", h)
+		}
+		if y >= 5 {
+			t.Fatalf("expected mention list to render above the input, got y=%d", y)
+		}
+		if x < 4 {
+			t.Fatalf("expected mention list x to stay within input bounds, got %d", x)
+		}
+		if !m.GetVisible(mentionsListLayerName) {
+			t.Fatal("expected showMentionList to show the overlay")
+		}
+	})
+}
+
+func TestMessageInputAdditionalParsingAndAutocompleteBranches(t *testing.T) {
+	t.Run("processText skips fenced code blocks", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me"}, true)
+		dm := &discord.Channel{
+			ID:           30,
+			Type:         discord.DirectMessage,
+			DMRecipients: []discord.User{{ID: 2, Username: "buddy"}},
+		}
+
+		got := mi.processText(dm, []byte("```txt\n@buddy\n```\n@buddy"))
+		want := "```txt\n@buddy\n```\n" + discord.UserID(2).Mention()
+		if got != want {
+			t.Fatalf("expected fenced code block to stay literal, got %q want %q", got, want)
+		}
+	})
+
+	t.Run("tabComplete handles guild member lookup error and empty mentions list", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+
+		guildChannel := &discord.Channel{ID: 40, GuildID: 41, Type: discord.GuildText}
+		m.SetSelectedChannel(guildChannel)
+		m.state = newNoopState()
+		mi.cfg.AutocompleteLimit = 0
+		mi.lastSearch = time.Now()
+		mi.SetText("@al", true)
+		mi.tabComplete()
+		if got := mi.GetText(); got != "@al" {
+			t.Fatalf("expected guild lookup error to leave text unchanged, got %q", got)
+		}
+
+		m = newTestModel()
+		mi = m.messageInput
+		mi.SetDisabled(false)
+		m.SetSelectedChannel(&discord.Channel{ID: 42, Type: discord.DirectMessage})
+		mi.cfg.AutocompleteLimit = 3
+		mi.SetText("@al", true)
+		mi.tabComplete()
+		if got := mi.GetText(); got != "@al" {
+			t.Fatalf("expected empty mentions list to leave text unchanged, got %q", got)
+		}
+	})
+
+	t.Run("tabSuggestion filters duplicate recent authors and truncates matches", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me"}, true)
+
+		dm := &discord.Channel{
+			ID:           50,
+			Type:         discord.DirectMessage,
+			DMRecipients: []discord.User{{ID: 2, Username: "alex"}, {ID: 3, Username: "alice"}},
+		}
+		m.SetSelectedChannel(dm)
+		m.state.Cabinet.MessageStore.MessageSet(&discord.Message{ID: 1, ChannelID: dm.ID, Author: discord.User{ID: 2, Username: "alex"}}, false)
+		m.state.Cabinet.MessageStore.MessageSet(&discord.Message{ID: 2, ChannelID: dm.ID, Author: discord.User{ID: 2, Username: "alex"}}, false)
+		mi.SetText("@", true)
+		mi.tabSuggestion()
+		if got := mi.mentionsList.itemCount(); got != 1 {
+			t.Fatalf("expected duplicate recent DM authors to be collapsed, got %d", got)
+		}
+
+		guildID := discord.GuildID(60)
+		channel := &discord.Channel{ID: 61, GuildID: guildID, Type: discord.GuildText}
+		m.SetSelectedChannel(channel)
+		setPermissionsForUser(m, guildID, channel, discord.User{ID: 2, Username: "alex"}, discord.PermissionViewChannel)
+		setPermissionsForUser(m, guildID, channel, discord.User{ID: 3, Username: "alice"}, discord.PermissionViewChannel)
+		setPermissionsForUser(m, guildID, channel, discord.User{ID: 4, Username: "albert"}, discord.PermissionViewChannel)
+		mi.cfg.AutocompleteLimit = 1
+		mi.cache.Create(guildID.String()+" al", mi.chat.state.MemberState.SearchLimit)
+		mi.SetText("@al", true)
+		mi.tabSuggestion()
+		if got := mi.mentionsList.itemCount(); got != 1 {
+			t.Fatalf("expected guild suggestions to truncate to the autocomplete limit, got %d", got)
+		}
+	})
+
+	t.Run("showMentionList zero min width uses message pane width", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		mi.cfg.Theme.MentionsList.MinWidth = 0
+		m.messagesList.SetRect(0, 0, 24, 8)
+		mi.SetRect(1, 6, 10, 3)
+		mi.mentionsList.append(mentionsListItem{insertText: "alex", displayText: "alex", style: tcell.StyleDefault})
+		mi.mentionsList.rebuild()
+
+		_, _, expectedW, _ := m.messagesList.GetInnerRect()
+		mi.showMentionList()
+		_, _, gotW, _ := mi.mentionsList.GetRect()
+		if gotW != expectedW {
+			t.Fatalf("expected mention list width %d from messages pane, got %d", expectedW, gotW)
+		}
+	})
+}
+
+func TestMessageInputTypingAndGuildSuggestionEdgeBranches(t *testing.T) {
+	t.Run("typing timer callback clears timer through seam", func(t *testing.T) {
+		oldAfterFunc := afterFunc
+		t.Cleanup(func() { afterFunc = oldAfterFunc })
+
+		var callback func()
+		afterFunc = func(_ time.Duration, f func()) *time.Timer {
+			callback = f
+			return time.NewTimer(time.Hour)
+		}
+
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		mi.cfg.TypingIndicator.Send = true
+		m.SetSelectedChannel(&discord.Channel{ID: 100, Type: discord.DirectMessage})
+
+		mi.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "a", tcell.ModNone))
+		if mi.typingTimer == nil {
+			t.Fatal("expected typing timer to be armed")
+		}
+		if callback == nil {
+			t.Fatal("expected typing callback to be captured")
+		}
+		callback()
+		if mi.typingTimer != nil {
+			t.Fatal("expected typing callback to clear the timer")
+		}
+	})
+
+	t.Run("guild recent-author duplicates and autocomplete limit break", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		mi.SetDisabled(false)
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me"}, true)
+
+		guildID := discord.GuildID(110)
+		channel := &discord.Channel{ID: 111, GuildID: guildID, Type: discord.GuildText}
+		m.SetSelectedChannel(channel)
+
+		setPermissionsForUser(m, guildID, channel, discord.User{ID: 2, Username: "alex"}, discord.PermissionViewChannel)
+		m.state.Cabinet.MessageStore.MessageSet(&discord.Message{ID: 1, ChannelID: channel.ID, GuildID: guildID, Author: discord.User{ID: 2, Username: "alex"}}, false)
+		m.state.Cabinet.MessageStore.MessageSet(&discord.Message{ID: 2, ChannelID: channel.ID, GuildID: guildID, Author: discord.User{ID: 2, Username: "alex"}}, false)
+
+		mi.SetText("@", true)
+		mi.tabSuggestion()
+		if got := mi.mentionsList.itemCount(); got != 1 {
+			t.Fatalf("expected duplicate guild recent authors to be collapsed, got %d", got)
+		}
+	})
+
+	t.Run("searchMember prefix cache short-circuit uses explicit search limit", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		guildID := discord.GuildID(120)
+		mi.chat.state.MemberState.SearchLimit = 5
+		mi.cache.Create(guildID.String()+" a", 1)
+
+		before := mi.lastSearch
+		mi.searchMember(guildID, "ab")
+		if !mi.cache.Exists(guildID.String() + " ab") {
+			t.Fatal("expected prefix-cache search to create the more specific cache key")
+		}
+		if mi.lastSearch != before {
+			t.Fatal("expected prefix-cache search to avoid updating lastSearch")
+		}
+	})
+
+	t.Run("expandMentions keeps text when guild members do not match", func(t *testing.T) {
+		m := newTestModel()
+		mi := m.messageInput
+		guildID := discord.GuildID(130)
+		channel := &discord.Channel{ID: 131, GuildID: guildID, Type: discord.GuildText}
+		setPermissionsForUser(m, guildID, channel, discord.User{ID: 2, Username: "someoneelse"}, discord.PermissionViewChannel)
+
+		if got := string(mi.expandMentions(channel, []byte("@missing"))); got != "@missing" {
+			t.Fatalf("expected unmatched guild mention to stay unchanged, got %q", got)
+		}
+	})
+
+	t.Run("default editor helpers are callable", func(t *testing.T) {
+		cfg, err := config.Load("")
+		if err != nil {
+			t.Fatalf("config.Load: %v", err)
+		}
+		cfg.Editor = "true"
+
+		cmd := createEditorCmd(cfg, "/tmp/example.md")
+		if cmd == nil {
+			t.Fatal("expected default createEditorCmd to build a command")
+		}
+		if err := runEditorCmd(exec.Command("true")); err != nil {
+			t.Fatalf("expected default runEditorCmd to succeed for true, got %v", err)
+		}
+	})
 }

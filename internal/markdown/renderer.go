@@ -24,6 +24,13 @@ type Renderer struct {
 
 const codeBlockIndent = "    "
 
+var (
+	tokeniseCodeBlock = func(lexer chroma.Lexer, code string) (chroma.Iterator, error) {
+		return lexer.Tokenise(nil, code)
+	}
+	getMarkdownTheme = styles.Get
+)
+
 func NewRenderer(cfg *config.Config) *Renderer {
 	return &Renderer{cfg: cfg}
 }
@@ -184,7 +191,7 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 		builder.NewLine()
 	}
 
-	iterator, err := lexer.Tokenise(nil, code.String())
+	iterator, err := tokeniseCodeBlock(lexer, code.String())
 	if err != nil {
 		for i := range lines.Len() {
 			line := lines.At(i)
@@ -193,7 +200,7 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 		return
 	}
 
-	theme := styles.Get(r.cfg.Markdown.Theme)
+	theme := getMarkdownTheme(r.cfg.Markdown.Theme)
 	if theme == nil {
 		theme = styles.Fallback
 	}

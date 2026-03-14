@@ -5,6 +5,8 @@ import (
 	stdHttp "net/http"
 )
 
+var superPropsHeaderValue = getSuperProps
+
 func Headers() stdHttp.Header {
 	headers := make(stdHttp.Header)
 	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers
@@ -21,7 +23,7 @@ func Headers() stdHttp.Header {
 	headers.Set("X-Debug-Options", "bugReporterEnabled")
 	headers.Set("X-Discord-Locale", string(Locale))
 
-	superProps, err := getSuperProps()
+	superProps, err := superPropsHeaderValue()
 	if err != nil {
 		slog.Error("failed to get super props", "err", err)
 	} else {

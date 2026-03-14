@@ -15,6 +15,8 @@ import (
 
 const kittyChunkSize = 4096
 
+var pngEncode = png.Encode
+
 // IsKittySupported checks environment variables to determine if the terminal
 // supports the Kitty graphics protocol.
 func IsKittySupported() bool {
@@ -44,7 +46,7 @@ func EncodeKittyPayload(img image.Image, cols, rows, cellW, cellH int) (string, 
 	resized := resizeImage(img, targetW, targetH)
 
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, resized); err != nil {
+	if err := pngEncode(&buf, resized); err != nil {
 		return "", fmt.Errorf("kitty: png encode: %w", err)
 	}
 

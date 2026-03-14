@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -32,10 +33,26 @@ func TestLogger(t *testing.T) {
 	})
 
 	t.Run("Load_MkdirError", func(t *testing.T) {
-		// Try to load in a read-only or invalid path
-		err := Load("/root/invalid/log.txt", slog.LevelInfo)
+		oldMkdirAll := mkdirAll
+		t.Cleanup(func() { mkdirAll = oldMkdirAll })
+		mkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") }
+
+		err := Load(filepath.Join(t.TempDir(), "test.log"), slog.LevelInfo)
 		if err == nil {
-			t.Errorf("Expected error for invalid path")
+			t.Errorf("Expected error for mkdir failure")
+		}
+	})
+
+	t.Run("Load_OpenFileError", func(t *testing.T) {
+		oldOpenFile := openFile
+		t.Cleanup(func() { openFile = oldOpenFile })
+		openFile = func(string, int, os.FileMode) (*os.File, error) {
+			return nil, errors.New("open failed")
+		}
+
+		err := Load(filepath.Join(t.TempDir(), "test.log"), slog.LevelInfo)
+		if err == nil {
+			t.Fatal("expected open file error")
 		}
 	})
 }

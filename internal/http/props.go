@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var jsonMarshal = json.Marshal
+
 const (
 	OS        = "Windows"
 	OSVersion = "10"
@@ -59,7 +61,7 @@ func getSuperProps() (string, error) {
 	delete(props, "is_fast_connect")
 	delete(props, "gateway_connect_reasons")
 
-	raw, err := json.Marshal(props)
+	raw, err := jsonMarshal(props)
 	if err != nil {
 		return "", err
 	}

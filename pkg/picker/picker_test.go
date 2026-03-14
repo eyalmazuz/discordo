@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ayn2op/tview"
@@ -225,5 +226,53 @@ func TestPicker_onInputChanged(t *testing.T) {
 	p.onInputChanged("")
 	if p.FilteredCount() != 2 {
 		t.Fatalf("expected 2 items, got %d", p.FilteredCount())
+	}
+}
+
+func TestPicker_SetFilteredItemsBuilderBranches(t *testing.T) {
+	p := New()
+	p.setFilteredItems(Items{
+		{
+			Builder: func(selected bool) tview.ListItem {
+				return tview.NewTextView().SetText("built")
+			},
+		},
+	})
+
+	if got := p.list.Builder(0, 0); got == nil {
+		t.Fatal("expected custom builder item")
+	}
+	if got := p.list.Builder(99, 0); got != nil {
+		t.Fatalf("expected out-of-range builder to return nil, got %T", got)
+	}
+}
+
+func TestPicker_HandleEvent_ExtraBranches(t *testing.T) {
+	p := New()
+	p.SetKeyMap(&KeyMap{
+		Select:      keybind.NewKeybind(keybind.WithKeys("enter")),
+		Cancel:      keybind.NewKeybind(keybind.WithKeys("esc")),
+		ToggleFocus: keybind.NewKeybind(keybind.WithKeys("tab")),
+	})
+
+	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatal("expected toggle focus with nil focus func to redraw")
+	}
+
+	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatal("expected select key with no selection callback to redraw")
+	}
+
+	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
+		t.Fatal("expected cancel key with no cancel callback to redraw")
+	}
+
+	p.input.Focus(nil)
+	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone)); cmd == nil {
+		t.Fatal("expected rune navigation outside list focus to fall through to the embedded flex")
+	}
+
+	if cmd := p.HandleEvent(tcell.NewEventError(errors.New("boom"))); cmd != nil {
+		t.Fatalf("expected non-key event to fall through without command, got %T", cmd)
 	}
 }

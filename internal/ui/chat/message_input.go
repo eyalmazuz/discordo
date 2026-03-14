@@ -40,6 +40,7 @@ const tmpFilePattern = consts.Name + "_*.md"
 
 var mentionRegex = regexp.MustCompile("@[a-zA-Z0-9._]+")
 var emojiRegex = regexp.MustCompile(":([a-zA-Z0-9_]+):")
+var afterFunc = time.AfterFunc
 
 type messageInput struct {
 	*tview.TextArea
@@ -163,7 +164,7 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command {
 		}
 
 		if mi.cfg.TypingIndicator.Send && mi.typingTimer == nil {
-			mi.typingTimer = time.AfterFunc(typingDuration, func() {
+			mi.typingTimer = afterFunc(typingDuration, func() {
 				mi.typingTimerMu.Lock()
 				mi.typingTimer = nil
 				mi.typingTimerMu.Unlock()
@@ -498,17 +499,16 @@ func (mi *messageInput) tabSuggestion() {
 			slog.Error("fetching members failed", "err", err)
 			return
 		}
-		res := fuzzy.FindFrom(name, memberList(mems))
-		if len(res) > int(mi.cfg.AutocompleteLimit) {
-			res = res[:int(mi.cfg.AutocompleteLimit)]
-		}
-		for _, r := range res {
-			if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) &&
-				mi.addMentionMember(gID, &mems[r.Index]) {
-				break
+			res := fuzzy.FindFrom(name, memberList(mems))
+			if len(res) > int(mi.cfg.AutocompleteLimit) {
+				res = res[:int(mi.cfg.AutocompleteLimit)]
+			}
+			for _, r := range res {
+				if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) {
+					mi.addMentionMember(gID, &mems[r.Index])
+				}
 			}
 		}
-	}
 
 	if mi.mentionsList.itemCount() == 0 {
 		mi.stopTabCompletion(nil)

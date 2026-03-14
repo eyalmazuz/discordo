@@ -72,6 +72,12 @@ func TestModelActiveKeyMap(t *testing.T) {
 	if got := m.activeKeyMap(); got != m.messagesList.attachmentsPicker {
 		t.Fatalf("expected attachments picker key map, got %T", got)
 	}
+
+	m.RemoveLayer(attachmentsListLayerName)
+	m.app.SetFocus(tview.NewBox())
+	if got := m.activeKeyMap(); got != nil {
+		t.Fatalf("expected nil key map for unrelated focus target, got %T", got)
+	}
 }
 
 func TestModelBaseHelp(t *testing.T) {

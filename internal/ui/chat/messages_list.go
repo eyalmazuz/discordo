@@ -34,6 +34,7 @@ import (
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/json/option"
+	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3/discordmd"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
@@ -45,6 +46,22 @@ import (
 )
 
 var openStart = open.Start
+
+var (
+	httpGetAttachment    = http.Get
+	mkdirAllAttachment   = os.MkdirAll
+	createAttachmentFile = os.Create
+	copyAttachmentData   = io.Copy
+	deleteMessageFunc    = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
+		return s.DeleteMessage(channelID, messageID, reason)
+	}
+	messageRemoveFunc = func(s *state.State, channelID discord.ChannelID, messageID discord.MessageID) error {
+		return s.MessageRemove(channelID, messageID)
+	}
+	sendGatewayFunc = func(s *state.State, ctx context.Context, cmd ws.Event) error {
+		return s.SendGateway(ctx, cmd)
+	}
+)
 
 type messagesList struct {
 	*tview.List
@@ -792,16 +809,23 @@ func (ml *messagesList) drawContent(builder *tview.LineBuilder, message discord.
 		if startsWithCodeBlock {
 			// Keep code blocks visually separate from "timestamp + author".
 			builder.NewLine()
-			for len(lines) > 0 && len(lines[0]) == 0 {
-				lines = lines[1:]
-			}
-		} else {
-			for len(lines) > 1 && len(lines[0]) == 0 {
-				lines = lines[1:]
-			}
 		}
+		lines = trimLeadingContentLines(lines, startsWithCodeBlock)
 	}
 	builder.AppendLines(lines)
+}
+
+func trimLeadingContentLines(lines []tview.Line, startsWithCodeBlock bool) []tview.Line {
+	if startsWithCodeBlock {
+		for len(lines) > 0 && len(lines[0]) == 0 {
+			lines = lines[1:]
+		}
+		return lines
+	}
+	for len(lines) > 1 && len(lines[0]) == 0 {
+		lines = lines[1:]
+	}
+	return lines
 }
 
 func (ml *messagesList) renderContentLines(message discord.Message, baseStyle tcell.Style) ([]tview.Line, ast.Node) {
@@ -974,9 +998,6 @@ func wrapStyledLine(line tview.Line, width int) []tview.Line {
 	currentWidth := 0
 
 	pushSegment := func(text string, style tcell.Style) {
-		if text == "" {
-			return
-		}
 		if n := len(current); n > 0 && current[n-1].Style == style {
 			current[n-1].Text += text
 			return
@@ -1684,7 +1705,7 @@ func (ml *messagesList) showReactionPicker() {
 }
 
 func (ml *messagesList) openAttachment(attachment discord.Attachment) {
-	resp, err := http.Get(attachment.URL)
+	resp, err := httpGetAttachment(attachment.URL)
 	if err != nil {
 		slog.Error("failed to fetch the attachment", "err", err, "url", attachment.URL)
 		return
@@ -1692,32 +1713,32 @@ func (ml *messagesList) openAttachment(attachment discord.Attachment) {
 	defer resp.Body.Close()
 
 	path := filepath.Join(consts.CacheDir(), "attachments")
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
+	if err := mkdirAllAttachment(path, os.ModePerm); err != nil {
 		slog.Error("failed to create attachments dir", "err", err, "path", path)
 		return
 	}
 
 	path = filepath.Join(path, attachment.Filename)
-	file, err := os.Create(path)
+	file, err := createAttachmentFile(path)
 	if err != nil {
 		slog.Error("failed to create attachment file", "err", err, "path", path)
 		return
 	}
 	defer file.Close()
 
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	if _, err := copyAttachmentData(file, resp.Body); err != nil {
 		slog.Error("failed to copy attachment to file", "err", err)
 		return
 	}
 
-	if err := open.Start(path); err != nil {
+	if err := openStart(path); err != nil {
 		slog.Error("failed to open attachment file", "err", err, "path", path)
 		return
 	}
 }
 
 func (ml *messagesList) openURL(url string) {
-	if err := open.Start(url); err != nil {
+	if err := openStart(url); err != nil {
 		slog.Error("failed to open URL", "err", err, "url", url)
 	}
 }
@@ -1802,12 +1823,12 @@ func (ml *messagesList) delete() {
 		return
 	}
 
-	if err := ml.chatView.state.DeleteMessage(selected.ID, msg.ID, ""); err != nil {
+	if err := deleteMessageFunc(ml.chatView.state.State, selected.ID, msg.ID, ""); err != nil {
 		slog.Error("failed to delete message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
 		return
 	}
 
-	if err := ml.chatView.state.MessageRemove(selected.ID, msg.ID); err != nil {
+	if err := messageRemoveFunc(ml.chatView.state.State, selected.ID, msg.ID); err != nil {
 		slog.Error("failed to delete message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
 		return
 	}
@@ -1833,10 +1854,10 @@ func (ml *messagesList) requestGuildMembers(guildID discord.GuildID, messages []
 	}
 
 	if len(usersToFetch) > 0 {
-		err := ml.chatView.state.SendGateway(context.Background(), &gateway.RequestGuildMembersCommand{
-			GuildIDs: []discord.GuildID{guildID},
-			UserIDs:  usersToFetch,
-		})
+			err := sendGatewayFunc(ml.chatView.state.State, context.Background(), &gateway.RequestGuildMembersCommand{
+				GuildIDs: []discord.GuildID{guildID},
+				UserIDs:  usersToFetch,
+			})
 		if err != nil {
 			slog.Error("failed to request guild members", "guild_id", guildID, "err", err)
 			return

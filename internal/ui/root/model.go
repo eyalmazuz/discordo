@@ -26,6 +26,10 @@ type Model struct {
 	cfg *config.Config
 }
 
+var suspendModel = func(m *Model) {
+	m.suspend()
+}
+
 func NewModel(cfg *config.Config, app *tview.Application) *Model {
 	m := &Model{
 		app:      app,
@@ -117,7 +121,7 @@ func (m *Model) HandleEvent(event tcell.Event) tview.Command {
 			m.updateHelpHeight()
 			return tview.RedrawCommand{}
 		case keybind.Matches(event, m.cfg.Keybinds.Suspend.Keybind):
-			m.suspend()
+			suspendModel(m)
 			return nil
 		case keybind.Matches(event, m.cfg.Keybinds.Quit.Keybind):
 			var innerCmd tview.Command
