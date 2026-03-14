@@ -44,6 +44,8 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
+var openStart = open.Start
+
 type messagesList struct {
 	*tview.List
 	cfg      *config.Config
@@ -1493,7 +1495,7 @@ func (ml *messagesList) yankID() {
 	}
 
 	go func() {
-		if err := clipboard.Write(clipboard.FmtText, []byte(msg.ID.String())); err != nil {
+		if err := clipboardWrite(clipboard.FmtText, []byte(msg.ID.String())); err != nil {
 			slog.Error("failed to copy message id", "err", err)
 		}
 	}()
@@ -1507,7 +1509,7 @@ func (ml *messagesList) yankContent() {
 	}
 
 	go func() {
-		if err := clipboard.Write(clipboard.FmtText, []byte(msg.Content)); err != nil {
+		if err := clipboardWrite(clipboard.FmtText, []byte(msg.Content)); err != nil {
 			slog.Error("failed to copy message content", "err", err)
 		}
 	}()
@@ -1521,7 +1523,7 @@ func (ml *messagesList) yankURL() {
 	}
 
 	go func() {
-		if err := clipboard.Write(clipboard.FmtText, []byte(msg.URL())); err != nil {
+		if err := clipboardWrite(clipboard.FmtText, []byte(msg.URL())); err != nil {
 			slog.Error("failed to copy message url", "err", err)
 		}
 	}()

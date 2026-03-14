@@ -6,8 +6,10 @@ import (
 	"github.com/ayn2op/discordo/cmd"
 )
 
+var runCmd = cmd.Run
+
 func main() {
-	if err := cmd.Run(); err != nil {
+	if err := runCmd(); err != nil {
 		slog.Error("failed to run command", "err", err)
 	}
 }

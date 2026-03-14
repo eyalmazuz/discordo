@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -72,12 +73,12 @@ func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
 		SetPlaceholder(tview.NewLine(tview.NewSegment("Select a channel to start chatting", tcell.StyleDefault.Dim(true)))).
 		SetClipboard(
 			func(s string) {
-				if err := clipboard.Write(clipboard.FmtText, []byte(s)); err != nil {
+				if err := clipboardWrite(clipboard.FmtText, []byte(s)); err != nil {
 					slog.Error("failed to write clipboard text", "err", err)
 				}
 			},
 			func() string {
-				data, err := clipboard.Read(clipboard.FmtText)
+				data, err := clipboardRead(clipboard.FmtText)
 				if err != nil {
 					slog.Error("failed to read clipboard text", "err", err)
 					return ""
@@ -200,7 +201,7 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command {
 }
 
 func (mi *messageInput) paste() {
-	data, err := clipboard.Read(clipboard.FmtImage)
+	data, err := clipboardRead(clipboard.FmtImage)
 	if err != nil {
 		slog.Error("failed to read clipboard image", "err", err)
 		return
@@ -222,9 +223,10 @@ func (mi *messageInput) send() {
 		return
 	}
 
+	files := mi.sendMessageData.Files
 	// Close attached files on return
 	defer func() {
-		for _, file := range mi.sendMessageData.Files {
+		for _, file := range files {
 			if closer, ok := file.Reader.(io.Closer); ok {
 				closer.Close()
 			}
@@ -309,7 +311,11 @@ func (mi *messageInput) processText(channel *discord.Channel, src []byte) string
 		return ast.WalkContinue, nil
 	})
 
-	for _, rng := range ranges {
+	for i := len(ranges) - 1; i >= 0; i-- {
+		rng := ranges[i]
+		if rng[0] < 0 || rng[1] > len(src) || rng[0] >= rng[1] {
+			continue
+		}
 		src = slices.Replace(src, rng[0], rng[1], expand(src[rng[0]:rng[1]])...)
 	}
 
@@ -675,14 +681,26 @@ func (mi *messageInput) stopTabCompletion(emit func(tview.Command)) {
 	}
 }
 
+var (
+	createEditorCmd      = func(cfg *config.Config, path string) *exec.Cmd { return cfg.CreateEditorCommand(path) }
+	runEditorCmd         = func(cmd *exec.Cmd) error { return cmd.Run() }
+	createTempFile       = os.CreateTemp
+	removeFile           = os.Remove
+	readFile             = os.ReadFile
+	clipboardRead        = clipboard.Read
+	clipboardWrite       = clipboard.Write
+	selectFileMultiple   = zenity.SelectFileMultiple
+	openFile             = os.Open
+)
+
 func (mi *messageInput) editor() {
-	file, err := os.CreateTemp("", tmpFilePattern)
+	file, err := createTempFile("", tmpFilePattern)
 	if err != nil {
 		slog.Error("failed to create tmp file", "err", err)
 		return
 	}
 	defer file.Close()
-	defer os.Remove(file.Name())
+	defer removeFile(file.Name())
 
 	file.WriteString(mi.GetText())
 
@@ -691,7 +709,7 @@ func (mi *messageInput) editor() {
 		return
 	}
 
-	cmd := mi.cfg.CreateEditorCommand(file.Name())
+	cmd := createEditorCmd(mi.cfg, file.Name())
 	if cmd == nil {
 		return
 	}
@@ -701,14 +719,14 @@ func (mi *messageInput) editor() {
 	cmd.Stderr = os.Stderr
 
 	mi.chat.app.Suspend(func() {
-		err := cmd.Run()
+		err := runEditorCmd(cmd)
 		if err != nil {
 			slog.Error("failed to run command", "args", cmd.Args, "err", err)
 			return
 		}
 	})
 
-	msg, err := os.ReadFile(file.Name())
+	msg, err := readFile(file.Name())
 	if err != nil {
 		slog.Error("failed to read tmp file", "name", file.Name(), "err", err)
 		return
@@ -722,14 +740,14 @@ func (mi *messageInput) openFilePicker() {
 		return
 	}
 
-	paths, err := zenity.SelectFileMultiple()
+	paths, err := selectFileMultiple()
 	if err != nil {
 		slog.Error("failed to open file dialog", "err", err)
 		return
 	}
 
 	for _, path := range paths {
-		file, err := os.Open(path)
+		file, err := openFile(path)
 		if err != nil {
 			slog.Error("failed to open file", "path", path, "err", err)
 			continue

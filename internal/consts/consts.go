@@ -8,6 +8,12 @@ import (
 
 const Name = "discordo"
 
+var (
+	osUserCacheDir     = os.UserCacheDir
+	osTempDir          = os.TempDir
+	osMkdirAllCacheDir = os.MkdirAll
+)
+
 var cacheDir string
 
 func CacheDir() string {
@@ -15,14 +21,20 @@ func CacheDir() string {
 }
 
 func init() {
-	userCacheDir, err := os.UserCacheDir()
+	initCacheDir()
+}
+
+func initCacheDir() string {
+	userCacheDir, err := osUserCacheDir()
 	if err != nil {
-		userCacheDir = os.TempDir()
+		userCacheDir = osTempDir()
 		slog.Warn("failed to get user cache dir; falling back to temp dir", "err", err, "path", userCacheDir)
 	}
 
 	cacheDir = filepath.Join(userCacheDir, Name)
-	if err := os.MkdirAll(cacheDir, os.ModePerm); err != nil {
+	if err := osMkdirAllCacheDir(cacheDir, os.ModePerm); err != nil {
 		slog.Error("failed to create cache dir", "err", err, "path", cacheDir)
 	}
+
+	return cacheDir
 }

@@ -30,7 +30,7 @@ func TestDecodeImageData_AnimatedGIF(t *testing.T) {
 	}
 }
 
-func TestAnimation_FrameAt(t *testing.T) {
+func TestAnimation_FrameAt_Cache(t *testing.T) {
 	data := buildAnimatedGIF(t)
 	_, anim, err := decodeImageData(data, "https://cdn.discordapp.com/emojis/123.gif")
 	if err != nil {

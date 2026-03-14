@@ -29,6 +29,12 @@ func TestModel_HandleEvent_Submission(t *testing.T) {
 	if cmd == nil {
 		t.Errorf("Expected a command for FormSubmitEvent, got nil")
 	}
+	
+	// Execute command
+	event := cmd.(tview.EventCommand)()
+	if e, ok := event.(*TokenEvent); !ok || e.Token != token {
+		t.Errorf("Expected TokenEvent with token, got %v", event)
+	}
 }
 
 func TestModel_Label(t *testing.T) {
@@ -56,4 +62,12 @@ func TestModel_HandleEvent_Fallback(t *testing.T) {
 	// We don't necessarily care about the return value, just that it doesn't crash
 	// and follows the expected path.
 	m.HandleEvent(event)
+}
+
+func TestTokenCommand(t *testing.T) {
+	cmd := tokenCommand("cmd-token")
+	event := cmd.(tview.EventCommand)()
+	if e, ok := event.(*TokenEvent); !ok || e.Token != "cmd-token" {
+		t.Errorf("Expected TokenEvent with token, got %v", event)
+	}
 }

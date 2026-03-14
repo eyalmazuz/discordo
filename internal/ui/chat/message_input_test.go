@@ -3,42 +3,10 @@ package chat
 import (
 	"testing"
 
-	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
-	"github.com/diamondburned/arikawa/v3/session"
-	"github.com/diamondburned/arikawa/v3/state"
-	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"
-	"github.com/diamondburned/ningen/v3"
 	"github.com/gdamore/tcell/v3"
 )
-
-func newMockChatModel() *Model {
-	cfg, _ := config.Load("")
-	app := tview.NewApplication()
-	m := &Model{
-		app: app,
-		cfg: cfg,
-	}
-	m.Layers = layers.New()
-
-	// Mock ningen state
-	s := state.NewFromSession(session.New(""), defaultstore.New())
-	m.state = ningen.FromState(s)
-
-	// Mock current user
-	me := discord.User{ID: 1, Username: "me"}
-	s.Cabinet.MeStore.MyselfSet(me, false)
-
-	m.messageInput = newMessageInput(cfg, m)
-	m.messagesList = newMessagesList(cfg, m)
-	m.channelsPicker = newChannelsPicker(cfg, m)
-	m.messageSearch = newMessageSearchPopup(cfg, m, m.messagesList)
-
-	return m
-}
 
 func TestMessageInput_AutocompleteTrigger(t *testing.T) {
 	m := newMockChatModel()

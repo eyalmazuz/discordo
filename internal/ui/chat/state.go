@@ -20,6 +20,17 @@ import (
 	"github.com/diamondburned/ningen/v3"
 )
 
+var (
+	newOpenState = func(token string, id gateway.Identifier) *ningen.State {
+		session := session.NewCustom(id, http.NewClient(token), handler.New())
+		state := state.NewFromSession(session, defaultstore.New())
+		return ningen.FromState(state)
+	}
+	openNingenState = func(st *ningen.State) error {
+		return st.Open(context.Background())
+	}
+)
+
 func (v *Model) OpenState(token string) error {
 	identifyProps := http.IdentifyProperties()
 	gateway.DefaultIdentity = identifyProps
@@ -30,9 +41,7 @@ func (v *Model) OpenState(token string) error {
 	id := gateway.DefaultIdentifier(token)
 	id.Compress = false
 
-	session := session.NewCustom(id, http.NewClient(token), handler.New())
-	state := state.NewFromSession(session, defaultstore.New())
-	v.state = ningen.FromState(state)
+	v.state = newOpenState(token, id)
 
 	// Handlers
 	v.state.AddHandler(v.onRaw)
@@ -55,7 +64,7 @@ func (v *Model) OpenState(token string) error {
 	}
 
 	v.state.OnRequest = append(v.state.OnRequest, httputil.WithHeaders(http.Headers()), v.onRequest)
-	return v.state.Open(context.Background())
+	return openNingenState(v.state)
 }
 
 func (v *Model) CloseState() error {

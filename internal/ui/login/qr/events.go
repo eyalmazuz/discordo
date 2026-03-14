@@ -8,11 +8,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	stdhttp "net/http"
 	"strings"
 	"time"
 
 	"github.com/ayn2op/discordo/internal/http"
 	"github.com/ayn2op/tview"
+	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/utils/httputil"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gorilla/websocket"
@@ -51,11 +53,23 @@ func newConnCloseEvent() *connCloseEvent {
 	return event
 }
 
+var (
+	wsDial = func(url string, headers stdhttp.Header) (*websocket.Conn, *stdhttp.Response, error) {
+		return websocket.DefaultDialer.Dial(url, headers)
+	}
+	wsReadMessage    = func(conn *websocket.Conn) (int, []byte, error) { return conn.ReadMessage() }
+	wsWriteJSON      = func(conn *websocket.Conn, v any) error { return conn.WriteJSON(v) }
+	wsClose          = func(conn *websocket.Conn) error { return conn.Close() }
+	exchangeTicketFn = func(client *api.Client, ticket string) (string, error) {
+		return client.ExchangeRemoteAuthTicket(ticket)
+	}
+)
+
 func (m *Model) connect() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
 		headers := http.Headers()
 		headers.Set("User-Agent", http.BrowserUserAgent)
-		conn, _, err := websocket.DefaultDialer.Dial(remoteAuthGatewayURL, headers)
+		conn, _, err := wsDial(remoteAuthGatewayURL, headers)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}
@@ -66,7 +80,7 @@ func (m *Model) connect() tview.Command {
 func (m *Model) close() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
 		if m.conn != nil {
-			if err := m.conn.Close(); err != nil {
+			if err := wsClose(m.conn); err != nil {
 				return tcell.NewEventError(err)
 			}
 		}
@@ -144,7 +158,7 @@ func (m *Model) listen() tview.Command {
 			return nil
 		}
 
-		_, data, err := m.conn.ReadMessage()
+		_, data, err := wsReadMessage(m.conn)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}
@@ -229,7 +243,7 @@ func (m *Model) sendHeartbeat() tview.Command {
 		data := struct {
 			Op string `json:"op"`
 		}{"heartbeat"}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn,data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
@@ -271,7 +285,7 @@ func (m *Model) sendInit() tview.Command {
 			Op               string `json:"op"`
 			EncodedPublicKey string `json:"encoded_public_key"`
 		}{"init", encodedPublicKey}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn,data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
@@ -295,7 +309,7 @@ func (m *Model) sendNonceProof(encryptedNonce string) tview.Command {
 			Op    string `json:"op"`
 			Nonce string `json:"nonce"`
 		}{"nonce_proof", encodedNonce}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn,data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
@@ -369,7 +383,7 @@ func (m *Model) exchangeTicket(ticket string) tview.Command {
 		client := http.NewClient("")
 		client.OnRequest = append(client.OnRequest, httputil.WithHeaders(headers))
 
-		encryptedToken, err := client.ExchangeRemoteAuthTicket(ticket)
+		encryptedToken, err := exchangeTicketFn(client, ticket)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}

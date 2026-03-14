@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/logger"
@@ -19,11 +20,28 @@ var (
 	logLevel   string
 )
 
+var (
+	parseFlags = func(args []string) error {
+		fs := flag.NewFlagSet("discordo", flag.ContinueOnError)
+		fs.StringVar(&configPath, "config-path", config.DefaultPath(), "path of the configuration file")
+		fs.StringVar(&logPath, "log-path", logger.DefaultPath(), "path of the log file")
+		fs.StringVar(&logLevel, "log-level", "info", "log level")
+		return fs.Parse(args)
+	}
+	loadLogger   = logger.Load
+	loadConfig   = config.Load
+	newScreen    = tcell.NewScreen
+	newApp       = tview.NewApplication
+	newRootModel = func(cfg *config.Config, app *tview.Application) tview.Primitive {
+		return root.NewModel(cfg, app)
+	}
+	runApp = func(app *tview.Application) error { return app.Run() }
+)
+
 func Run() error {
-	flag.StringVar(&configPath, "config-path", config.DefaultPath(), "path of the configuration file")
-	flag.StringVar(&logPath, "log-path", logger.DefaultPath(), "path of the log file")
-	flag.StringVar(&logLevel, "log-level", "info", "log level")
-	flag.Parse()
+	if err := parseFlags(os.Args[1:]); err != nil {
+		return err
+	}
 
 	var level slog.Level
 	switch logLevel {
@@ -38,16 +56,16 @@ func Run() error {
 		level = slog.LevelError
 	}
 
-	if err := logger.Load(logPath, level); err != nil {
+	if err := loadLogger(logPath, level); err != nil {
 		return fmt.Errorf("failed to load logger: %w", err)
 	}
 
-	cfg, err := config.Load(configPath)
+	cfg, err := loadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	screen, err := tcell.NewScreen()
+	screen, err := newScreen()
 	if err != nil {
 		return fmt.Errorf("failed to create screen: %w", err)
 	}
@@ -63,8 +81,8 @@ func Run() error {
 	screen.EnableFocus()
 
 	tview.Styles = tview.Theme{}
-	app := tview.NewApplication()
-	app.SetRoot(root.NewModel(cfg, app))
+	app := newApp()
+	app.SetRoot(newRootModel(cfg, app))
 	app.SetScreen(screen)
-	return app.Run()
+	return runApp(app)
 }

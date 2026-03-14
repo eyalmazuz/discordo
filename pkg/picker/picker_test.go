@@ -56,6 +56,7 @@ func TestPicker_ListNavigation_HJKL(t *testing.T) {
 	p.AddItem(Item{Text: "Item 2"})
 	p.AddItem(Item{Text: "Item 3"})
 	p.Update()
+	p.SetRect(0, 0, 100, 100)
 
 	p.list.Focus(nil)
 	if p.list.Cursor() != 0 {
@@ -76,6 +77,18 @@ func TestPicker_ListNavigation_HJKL(t *testing.T) {
 
 	if p.list.Cursor() != 0 {
 		t.Errorf("Expected cursor 0 after 'k', got %d", p.list.Cursor())
+	}
+	
+	// Simulate 'G' when list is focused
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "G", tcell.ModNone))
+	if p.list.Cursor() != 2 {
+		t.Errorf("Expected cursor 2 after 'G', got %d", p.list.Cursor())
+	}
+	
+	// Simulate 'g' when list is focused
+	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone))
+	if p.list.Cursor() != 0 {
+		t.Errorf("Expected cursor 0 after 'g', got %d", p.list.Cursor())
 	}
 }
 
@@ -106,5 +119,111 @@ func TestPicker_StyledLineItem(t *testing.T) {
 	_, url := lines[0][0].Style.GetUrl()
 	if url != "https://example.com" {
 		t.Fatalf("expected URL metadata to be preserved, got %q", url)
+	}
+}
+
+func TestPicker_SettersAndClears(t *testing.T) {
+	p := New()
+	p.SetScrollBarVisibility(tview.ScrollBarVisibilityAlways)
+	p.SetScrollBar(tview.NewScrollBar())
+	
+	p.SetSelectedFunc(func(item Item) {})
+	p.SetCancelFunc(func() {})
+	
+	p.AddItem(Item{Text: "test"})
+	p.Update()
+	if p.FilteredCount() != 1 {
+		t.Fatal("expected 1 item")
+	}
+	
+	p.ClearItems()
+	p.Update()
+	if p.FilteredCount() != 0 {
+		t.Fatal("expected 0 items after ClearItems")
+	}
+	
+	p.AddItem(Item{Text: "test2"})
+	p.Update()
+	p.ClearList()
+	if p.FilteredCount() != 0 {
+		t.Fatal("expected 0 items after ClearList")
+	}
+}
+
+func TestPicker_HandleEvent_Full(t *testing.T) {
+	p := New()
+	p.SetKeyMap(&KeyMap{
+		Select: keybind.NewKeybind(keybind.WithKeys("enter")),
+		Cancel: keybind.NewKeybind(keybind.WithKeys("esc")),
+		Up:     keybind.NewKeybind(keybind.WithKeys("up")),
+		Down:   keybind.NewKeybind(keybind.WithKeys("down")),
+		Top:    keybind.NewKeybind(keybind.WithKeys("home")),
+		Bottom: keybind.NewKeybind(keybind.WithKeys("end")),
+	})
+	p.AddItem(Item{Text: "item1"})
+	p.AddItem(Item{Text: "item2"})
+	p.AddItem(Item{Text: "item3"})
+	p.Update()
+	p.SetRect(0, 0, 100, 100)
+	
+	t.Run("KeyMapNavigation", func(t *testing.T) {
+		p.list.Focus(nil)
+		p.list.SetCursor(0)
+		
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+		if p.list.Cursor() != 1 {
+			t.Errorf("expected cursor 1, got %d", p.list.Cursor())
+		}
+		
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+		if p.list.Cursor() != 2 {
+			t.Errorf("expected cursor 2, got %d", p.list.Cursor())
+		}
+		
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+		if p.list.Cursor() != 1 {
+			t.Errorf("expected cursor 1, got %d", p.list.Cursor())
+		}
+		
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+		if p.list.Cursor() != 0 {
+			t.Errorf("expected cursor 0, got %d", p.list.Cursor())
+		}
+	})
+
+	t.Run("Selection", func(t *testing.T) {
+		selected := false
+		p.SetSelectedFunc(func(item Item) { selected = true })
+		p.list.Focus(nil)
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, " ", tcell.ModNone))
+		if !selected {
+			t.Fatal("expected selected func to be called")
+		}
+	})
+
+	t.Run("Cancel", func(t *testing.T) {
+		canceled := false
+		p.SetCancelFunc(func() { canceled = true })
+		p.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, " ", tcell.ModNone))
+		if !canceled {
+			t.Fatal("expected cancel func to be called")
+		}
+	})
+}
+
+func TestPicker_onInputChanged(t *testing.T) {
+	p := New()
+	p.AddItem(Item{Text: "apple", FilterText: "apple"})
+	p.AddItem(Item{Text: "banana", FilterText: "banana"})
+	p.Update()
+	
+	p.onInputChanged("ap")
+	if p.FilteredCount() != 1 {
+		t.Fatalf("expected 1 item, got %d", p.FilteredCount())
+	}
+	
+	p.onInputChanged("")
+	if p.FilteredCount() != 2 {
+		t.Fatalf("expected 2 items, got %d", p.FilteredCount())
 	}
 }

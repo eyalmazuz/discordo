@@ -487,7 +487,7 @@ func (gt *guildsTree) yankID() {
 	// discord.Snowflake (discord.GuildID and discord.ChannelID) have the String method.
 	if id, ok := node.GetReference().(fmt.Stringer); ok {
 		go func() {
-			if err := clipboard.Write(clipboard.FmtText, []byte(id.String())); err != nil {
+			if err := clipboardWrite(clipboard.FmtText, []byte(id.String())); err != nil {
 				slog.Error("failed to copy node id", "err", err)
 			}
 		}()

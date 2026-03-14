@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -444,19 +443,6 @@ func TestMessagesList_ScheduleAnimatedRedraw_RearmsDuringQueuedDraw(t *testing.T
 	case <-time.After(300 * time.Millisecond):
 		t.Fatalf("expected animation redraw to re-arm during queued draw, got %d draw(s)", draws.Load())
 	}
-}
-
-type mockEmoteScreen struct {
-	MockScreen
-	cells map[string]string // "x,y" -> url
-}
-
-func (m *mockEmoteScreen) Get(x, y int) (string, tcell.Style, int) {
-	style := tcell.StyleDefault
-	if url, ok := m.cells[fmt.Sprintf("%d,%d", x, y)]; ok {
-		style = style.Url(url)
-	}
-	return " ", style, 1
 }
 
 func TestMessagesList_EmoteScanning(t *testing.T) {

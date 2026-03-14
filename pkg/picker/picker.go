@@ -197,10 +197,10 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 				return redraw
 			case keybind.Matches(event, p.keyMap.Top):
-				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+				p.list.SetCursor(0)
 				return redraw
 			case keybind.Matches(event, p.keyMap.Bottom):
-				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+				p.list.SetCursor(len(p.filtered) - 1)
 				return redraw
 			case keybind.Matches(event, p.keyMap.Select):
 				p.onListSelected(p.list.Cursor())
@@ -222,10 +222,10 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 				return redraw
 			case "g":
-				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+				p.list.SetCursor(0)
 				return redraw
 			case "G":
-				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+				p.list.SetCursor(len(p.filtered) - 1)
 				return redraw
 			}
 		}

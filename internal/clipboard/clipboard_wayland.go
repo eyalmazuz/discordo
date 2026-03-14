@@ -11,14 +11,23 @@ import (
 
 var wayland bool
 
+var (
+	osLookupEnv    = os.LookupEnv
+	execLookPath   = exec.LookPath
+	execCommand    = exec.Command
+	clipboardInit  = clipboard.Init
+	clipboardRead  = clipboard.Read
+	clipboardWrite = clipboard.Write
+)
+
 func Init() error {
-	if _, ok := os.LookupEnv("WAYLAND_DISPLAY"); !ok {
-		return clipboard.Init()
+	if _, ok := osLookupEnv("WAYLAND_DISPLAY"); !ok {
+		return clipboardInit()
 	}
-	if _, err := exec.LookPath("wl-copy"); err != nil {
+	if _, err := execLookPath("wl-copy"); err != nil {
 		return err
 	}
-	if _, err := exec.LookPath("wl-paste"); err != nil {
+	if _, err := execLookPath("wl-paste"); err != nil {
 		return err
 	}
 	wayland = true
@@ -27,11 +36,11 @@ func Init() error {
 
 func Read(t Format) ([]byte, error) {
 	if !wayland {
-		return clipboard.Read(clipboard.Format(t))
+		return clipboardRead(clipboard.Format(t))
 	}
 	// -n: Don't print a newline at the end
 	// -t type: MIME type specifier
-	cmd := exec.Command("wl-paste", "-nt", formatToType(t))
+	cmd := execCommand("wl-paste", "-nt", formatToType(t))
 	outBuffer := bytes.Buffer{}
 	cmd.Stdout = &outBuffer
 	if err := cmd.Run(); err != nil {
@@ -42,10 +51,10 @@ func Read(t Format) ([]byte, error) {
 
 func Write(t Format, buf []byte) error {
 	if !wayland {
-		return clipboard.Write(clipboard.Format(t), buf)
+		return clipboardWrite(clipboard.Format(t), buf)
 	}
 	// -t type: MIME type specifier
-	cmd := exec.Command("wl-copy", "-t", formatToType(t))
+	cmd := execCommand("wl-copy", "-t", formatToType(t))
 	cmd.Stdin = bytes.NewReader(buf)
 	return cmd.Run()
 }

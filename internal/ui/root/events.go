@@ -34,9 +34,16 @@ func newLoginEvent() *loginEvent {
 	return event
 }
 
+var (
+	getStoredToken    = keyring.GetToken
+	setStoredToken    = keyring.SetToken
+	deleteStoredToken = keyring.DeleteToken
+	initClipboardFn   = clipboard.Init
+)
+
 func getToken() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
-		token, err := keyring.GetToken()
+		token, err := getStoredToken()
 		if err != nil {
 			slog.Info("failed to retrieve token from keyring", "err", err)
 			return newLoginEvent()
@@ -47,7 +54,7 @@ func getToken() tview.Command {
 
 func setToken(token string) tview.Command {
 	return tview.EventCommand(func() tcell.Event {
-		if err := keyring.SetToken(token); err != nil {
+		if err := setStoredToken(token); err != nil {
 			slog.Error("failed to set token to keyring", "err", err)
 			return tcell.NewEventError(err)
 		}
@@ -57,7 +64,7 @@ func setToken(token string) tview.Command {
 
 func deleteToken() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
-		if err := keyring.DeleteToken(); err != nil {
+		if err := deleteStoredToken(); err != nil {
 			slog.Error("failed to delete token from keyring", "err", err)
 			return tcell.NewEventError(err)
 		}
@@ -67,7 +74,7 @@ func deleteToken() tview.Command {
 
 func initClipboard() tview.Command {
 	return tview.EventCommand(func() tcell.Event {
-		if err := clipboard.Init(); err != nil {
+		if err := initClipboardFn(); err != nil {
 			slog.Error("failed to init clipboard", "err", err)
 			return tcell.NewEventError(err)
 		}
