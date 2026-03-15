@@ -86,6 +86,8 @@ type messagesList struct {
 	imageItemByKey map[string]*imageItem
 	// emoteItemByKey caches emoji items.
 	emoteItemByKey map[string]*imageItem
+	// stickerItemByKey caches sticker items.
+	stickerItemByKey map[string]*imageItem
 
 	attachmentsPicker *attachmentsPicker
 	reactionPicker    *reactionPicker
@@ -123,12 +125,14 @@ const (
 	messagesListRowMessage messagesListRowKind = iota
 	messagesListRowSeparator
 	messagesListRowImage
+	messagesListRowSticker
 )
 
 type messagesListRow struct {
 	kind            messagesListRowKind
 	messageIndex    int
 	attachmentIndex int
+	stickerIndex    int
 	timestamp       discord.Timestamp
 }
 
@@ -142,8 +146,9 @@ func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
 		chatView:       chatView,
 		renderer:       markdown.NewRenderer(cfg),
 		itemByID:       make(map[discord.MessageID]*tview.TextView),
-		imageItemByKey: make(map[string]*imageItem),
-		emoteItemByKey: make(map[string]*imageItem),
+		imageItemByKey:   make(map[string]*imageItem),
+		emoteItemByKey:   make(map[string]*imageItem),
+		stickerItemByKey: make(map[string]*imageItem),
 		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
 		useKitty:       useKitty,
 		nextKittyID:    1,
@@ -199,8 +204,13 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 					item.unlockRegion(screen)
 					item.invalidateKittyPlacement()
 				}
+				for _, item := range ml.stickerItemByKey {
+					item.unlockRegion(screen)
+					item.invalidateKittyPlacement()
+				}
 				clear(ml.imageItemByKey)
 				clear(ml.emoteItemByKey)
+				clear(ml.stickerItemByKey)
 				ml.nextKittyID = 1
 			}
 			// Reset per-frame tracking and propagate cell dimensions.
@@ -209,6 +219,10 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 				item.setCellDimensions(ml.cellW, ml.cellH)
 			}
 			for _, item := range ml.emoteItemByKey {
+				item.drawnThisFrame = false
+				item.setCellDimensions(ml.cellW, ml.cellH)
+			}
+			for _, item := range ml.stickerItemByKey {
 				item.drawnThisFrame = false
 				item.setCellDimensions(ml.cellW, ml.cellH)
 			}
@@ -229,6 +243,13 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 			}
 		}
 		for _, item := range ml.emoteItemByKey {
+			if !item.drawnThisFrame && item.kittyPlaced {
+				item.unlockRegion(screen)
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+				item.invalidateKittyPlacement()
+			}
+		}
+		for _, item := range ml.stickerItemByKey {
 			if !item.drawnThisFrame && item.kittyPlaced {
 				item.unlockRegion(screen)
 				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
@@ -326,6 +347,9 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 		item.flushKittyPlace(tty)
 	}
 	for _, item := range ml.emoteItemByKey {
+		item.flushKittyPlace(tty)
+	}
+	for _, item := range ml.stickerItemByKey {
 		item.flushKittyPlace(tty)
 	}
 
@@ -527,6 +551,10 @@ func (ml *messagesList) buildItem(index int, cursor int) tview.ListItem {
 		return ml.buildImageItem(row)
 	}
 
+	if row.kind == messagesListRowSticker {
+		return ml.buildStickerItem(row)
+	}
+
 	message := ml.messages[row.messageIndex]
 	if index == cursor {
 		return tview.NewTextView().
@@ -590,6 +618,37 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 	return item
 }
 
+func (ml *messagesList) buildStickerItem(row messagesListRow) *imageItem {
+	msg := ml.messages[row.messageIndex]
+	s := msg.Stickers[row.stickerIndex]
+	url := ui.StickerURL(s)
+	key := fmt.Sprintf("%s-%d", msg.ID, row.stickerIndex)
+
+	if item, ok := ml.stickerItemByKey[key]; ok {
+		return item
+	}
+
+	cfg := ml.cfg.InlineImages
+	kittyID := ml.nextKittyID
+	ml.nextKittyID++
+
+	// Stickers are usually 320x320. We scale them to 40% of the configured inline image size.
+	maxW := int(float64(cfg.MaxWidth) * 0.4)
+	maxH := int(float64(cfg.MaxHeight) * 0.4)
+	item := newImageItem(ml.imageCache, url, maxW, maxH, ml.currentUseKitty(), kittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+	if ml.currentUseKitty() && ml.cellW > 0 {
+		item.setCellDimensions(ml.cellW, ml.cellH)
+	}
+	ml.stickerItemByKey[key] = item
+
+	// Stickers don't have a size field in StickerItem, so we use 0 (unlimited for now or we can pick a sensible default).
+	ml.imageCache.Request(url, cfg.MaxFileSize, 0, func() {
+		ml.chatView.app.QueueUpdateDraw(func() {})
+	})
+
+	return item
+}
+
 func (ml *messagesList) drawDateSeparator(builder *tview.LineBuilder, ts discord.Timestamp, baseStyle tcell.Style) {
 	date := ts.Time().In(time.Local).Format(ml.cfg.DateSeparator.Format)
 	label := " " + date + " "
@@ -639,6 +698,14 @@ func (ml *messagesList) rebuildRows() {
 						attachmentIndex: j,
 					})
 				}
+			}
+
+			for j := range ml.messages[i].Stickers {
+				rows = append(rows, messagesListRow{
+					kind:         messagesListRowSticker,
+					messageIndex: i,
+					stickerIndex: j,
+				})
 			}
 		}
 	}
@@ -887,6 +954,14 @@ func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message d
 	ml.drawEmbeds(builder, message, baseStyle)
 
 	ml.drawReactions(builder, message, baseStyle)
+
+	for _, s := range message.Stickers {
+		if ml.cfg.InlineImages.Enabled {
+			continue
+		}
+		builder.NewLine()
+		builder.Write("[Sticker: "+s.Name+"]", baseStyle.Italic(true))
+	}
 
 	attachmentStyle := ui.MergeStyle(baseStyle, ml.cfg.Theme.MessagesList.AttachmentStyle.Style)
 	for _, a := range message.Attachments {

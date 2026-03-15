@@ -429,6 +429,8 @@ func compactMessagePreview(message discord.Message) string {
 		return preview
 	}
 	switch {
+	case len(message.Stickers) > 0:
+		return "[sticker]"
 	case len(message.Attachments) > 0:
 		return "[attachment]"
 	case len(message.Embeds) > 0:

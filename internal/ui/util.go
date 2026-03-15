@@ -132,6 +132,19 @@ func getMessageIDFromChannel(channel discord.Channel) discord.MessageID {
 	return discord.MessageID(channel.ID)
 }
 
+func StickerURL(sticker discord.StickerItem) string {
+	ext := "png"
+	switch sticker.FormatType {
+	case discord.StickerFormatPNG, discord.StickerFormatAPNG:
+		ext = "png"
+	case discord.StickerFormatLottie:
+		ext = "json"
+	case 4: // GIF
+		ext = "gif"
+	}
+	return "https://cdn.discordapp.com/stickers/" + sticker.ID.String() + "." + ext
+}
+
 func MergeStyle(base, overlay tcell.Style) tcell.Style {
 	fg := overlay.GetForeground()
 	if fg == tcell.ColorDefault {
