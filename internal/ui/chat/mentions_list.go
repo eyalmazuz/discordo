@@ -10,7 +10,7 @@ import (
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )
@@ -221,7 +221,6 @@ func (m *mentionsList) AfterDraw(screen tcell.Screen) {
 	if !ok {
 		return
 	}
-
 	fmt.Fprint(tty, "\x1b7")
 	for _, id := range m.pendingDeletes {
 		_ = imgpkg.DeleteKittyByID(tty, id)

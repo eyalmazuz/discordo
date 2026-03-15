@@ -3,15 +3,15 @@ package login
 import (
 	"log/slog"
 
-	"github.com/ayn2op/tview/layers"
-	"github.com/ayn2op/tview/tabs"
+	"github.com/eyalmazuz/tview/layers"
+	"github.com/eyalmazuz/tview/tabs"
 	"github.com/gdamore/tcell/v3"
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
 	"github.com/ayn2op/discordo/internal/ui/login/qr"
 	"github.com/ayn2op/discordo/internal/ui/login/token"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 )
 
 const (

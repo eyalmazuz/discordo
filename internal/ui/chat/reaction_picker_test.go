@@ -8,8 +8,8 @@ import (
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )

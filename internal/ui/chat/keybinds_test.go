@@ -3,9 +3,9 @@ package chat
 import (
 	"testing"
 
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/keybind"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 )
 
@@ -61,6 +61,12 @@ func TestModelActiveKeyMap(t *testing.T) {
 		t.Fatalf("expected message search key map, got %T", got)
 	}
 	m.RemoveLayer(messageSearchLayerName)
+
+	m.AddLayer(m.pinnedMessages, layers.WithName(pinnedMessagesLayerName), layers.WithVisible(true))
+	if got := m.activeKeyMap(); got != m.pinnedMessages {
+		t.Fatalf("expected pinned messages key map, got %T", got)
+	}
+	m.RemoveLayer(pinnedMessagesLayerName)
 
 	m.AddLayer(tview.NewBox(), layers.WithName(reactionPickerLayerName), layers.WithVisible(true))
 	if got := m.activeKeyMap(); got != m.messagesList.reactionPicker {

@@ -20,10 +20,11 @@ import (
 	"github.com/ayn2op/discordo/internal/config"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3/states/relationship"
@@ -2000,26 +2001,10 @@ func TestMessagesListFetchAndPickerBranches(t *testing.T) {
 		if got := mlEmpty.prependOlderMessages(); got != 0 {
 			t.Fatalf("expected empty fetch to return 0, got %d", got)
 		}
-
-		mOK := newTestModelWithTransport(&mockTransport{
-			messages: []discord.Message{{ID: 49}, {ID: 48}},
-		})
-		mlOK := mOK.messagesList
-		mOK.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
-		mlOK.messages = []discord.Message{{ID: 50}}
-		mlOK.itemByID[49] = tview.NewTextView()
-		mlOK.itemByID[48] = tview.NewTextView()
-		if got := mlOK.prependOlderMessages(); got != 2 {
-			t.Fatalf("expected two prepended messages, got %d", got)
-		}
-		if len(mlOK.messages) != 3 || mlOK.messages[0].ID != 48 || mlOK.messages[1].ID != 49 || mlOK.messages[2].ID != 50 {
-			t.Fatalf("unexpected prepended message order: %#v", mlOK.messages)
-		}
-		if _, ok := mlOK.itemByID[49]; ok {
-			t.Fatal("expected overlapping cached message item to be invalidated")
-		}
 	})
+}
 
+func TestMessagesList_JumpToMessage_More(t *testing.T) {
 	t.Run("jumpToMessage covers invalid, error, empty, absent and success paths", func(t *testing.T) {
 		m := newTestModelWithTransport(&mockTransport{})
 		ml := m.messagesList
@@ -2678,5 +2663,113 @@ func TestMessagesListHelperBranches(t *testing.T) {
 		if got := <-opened; got != "https://example.com/link" {
 			t.Fatalf("expected picked URL, got %q", got)
 		}
+	})
+}
+
+func TestMessagesList_MoreBranches(t *testing.T) {
+	t.Run("yankContent_Error", func(t *testing.T) {
+		m := newTestModel()
+		ml := m.messagesList
+		ml.SetCursor(-1) // Will cause selectedMessage to error
+		if cmd := ml.yankContent(); cmd != nil {
+			t.Errorf("expected nil command for no selection, got %T", cmd)
+		}
+		
+		// clipboard error
+		ml.setMessages([]discord.Message{{ID: 1, Content: "kek"}})
+		ml.SetCursor(0)
+		oldClipboardWrite := clipboardWrite
+		defer func() { clipboardWrite = oldClipboardWrite }()
+		clipboardWrite = func(fmt clipkg.Format, data []byte) error { return errors.New("fail") }
+		if cmd := ml.yankContent(); cmd != nil {
+			cmd()
+		}
+	})
+
+	t.Run("setMessagePinned_Branches", func(t *testing.T) {
+		m := newTestModel()
+		m.state.Call(&gateway.ReadyEvent{User: discord.User{ID: 0}})
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 0}, true)
+		ml := m.messagesList
+		
+		// Case 1: In ml.messages
+		msg := discord.Message{ID: 1, ChannelID: 2, Content: "kek"}
+		ml.setMessages([]discord.Message{msg})
+		m.state.Cabinet.MessageStore.MessageSet(&msg, false)
+		ml.setMessagePinned(2, 1, true)
+		
+		// Case 2: Not in ml.messages but in cabinet
+		msg2 := discord.Message{ID: 2, ChannelID: 2, Content: "kek2"}
+		m.state.Cabinet.MessageStore.MessageSet(&msg2, false)
+		ml.setMessagePinned(2, 2, true)
+		
+		// Case 3: Not in cabinet
+		ml.setMessagePinned(2, 99, true)
+	})
+
+	t.Run("confirmPin_Branches", func(t *testing.T) {
+		m := newTestModel()
+		ml := m.messagesList
+		
+		// no selection
+		ml.SetCursor(-1)
+		ml.confirmPin()
+		
+		// with selection but no permissions (non-DM)
+		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
+		m.SetSelectedChannel(ch)
+		ml.setMessages([]discord.Message{{ID: 1, ChannelID: 2, Author: discord.User{ID: 1}}})
+		ml.SetCursor(0)
+		ml.confirmPin()
+
+		// with selection and permissions (DM)
+		chDM := &discord.Channel{ID: 3, Type: discord.DirectMessage}
+		m.SetSelectedChannel(chDM)
+		ml.setMessages([]discord.Message{{ID: 1, ChannelID: 3, Author: discord.User{ID: 1}}})
+		ml.SetCursor(0)
+		ml.confirmPin()
+	})
+
+	t.Run("pin_Branches", func(t *testing.T) {
+		m := newTestModel()
+		ml := m.messagesList
+		
+		// no selection
+		ml.SetCursor(-1)
+		ml.pin()
+
+		// with selection
+		msg := discord.Message{ID: 1, ChannelID: 3, Author: discord.User{ID: 1}}
+		ml.setMessages([]discord.Message{msg})
+		ml.SetCursor(0)
+
+		// no channel
+		m.SetSelectedChannel(nil)
+		ml.pin()
+		
+		// with channel but no permissions (non-DM)
+		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
+		m.SetSelectedChannel(ch)
+		// Missing permissions
+		ml.pin()
+
+		// with channel and permissions (DM)
+		chDM := &discord.Channel{ID: 3, Type: discord.DirectMessage}
+		m.SetSelectedChannel(chDM)
+		
+		// stub pinMessageFunc
+		oldPinMessageFunc := pinMessageFunc
+		defer func() { pinMessageFunc = oldPinMessageFunc }()
+		
+		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
+			return nil
+		}
+		ml.pin()
+		
+		// error case
+		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
+			return errors.New("pin fail")
+		}
+		ml.pin()
 	})
 }

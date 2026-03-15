@@ -1,8 +1,8 @@
 package root
 
 import (
-	"github.com/ayn2op/tview/help"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
 )
 
 var _ help.KeyMap = (*Model)(nil)

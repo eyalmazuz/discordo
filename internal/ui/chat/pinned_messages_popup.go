@@ -7,9 +7,9 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/help"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )

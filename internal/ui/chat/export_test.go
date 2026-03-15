@@ -3,7 +3,7 @@ package chat
 import (
 	"fmt"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/gdamore/tcell/v3"
 )

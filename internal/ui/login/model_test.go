@@ -6,7 +6,7 @@ import (
 
 	clipkg "github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 

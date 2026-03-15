@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/ningen/v3/states/read"

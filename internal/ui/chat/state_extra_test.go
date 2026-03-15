@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/utils/httputil/httpdriver"
@@ -263,11 +263,19 @@ func TestState_ReactionEvents(t *testing.T) {
 	})
 }
 
-func TestState_GuildMemberRemove(t *testing.T) {
+func TestState_onMessageDelete_Empty(t *testing.T) {
 	m := newTestModel()
-	ev := &gateway.GuildMemberRemoveEvent{
-		GuildID: 1,
-		User:    discord.User{ID: 2},
+	cid := discord.ChannelID(123)
+	m.SetSelectedChannel(&discord.Channel{ID: cid})
+	
+	oldQueueUpdateDraw := queueUpdateDraw
+	queueUpdateDraw = func(_ *tview.Application, f func()) { f() }
+	t.Cleanup(func() { queueUpdateDraw = oldQueueUpdateDraw })
+
+	m.messagesList.setMessages([]discord.Message{{ID: 1}})
+	m.messagesList.SetCursor(0)
+	m.onMessageDelete(&gateway.MessageDeleteEvent{ID: 1, ChannelID: cid})
+	if got := m.messagesList.Cursor(); got != -1 {
+		t.Errorf("expected cursor -1, got %d", got)
 	}
-	m.onGuildMemberRemove(ev)
 }

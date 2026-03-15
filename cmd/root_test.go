@@ -8,7 +8,7 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	rootui "github.com/ayn2op/discordo/internal/ui/root"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/gdamore/tcell/v3"
 )

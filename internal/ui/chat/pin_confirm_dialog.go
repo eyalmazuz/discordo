@@ -3,8 +3,8 @@ package chat
 import (
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
 

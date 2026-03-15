@@ -1,6 +1,6 @@
 package picker
 
-import "github.com/ayn2op/tview/keybind"
+import "github.com/eyalmazuz/tview/keybind"
 
 type KeyMap struct {
 	Cancel      keybind.Keybind

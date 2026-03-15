@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/ayn2op/discordo/internal/http"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/utils/httputil"
 	"github.com/gdamore/tcell/v3"

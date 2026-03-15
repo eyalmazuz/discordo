@@ -58,9 +58,6 @@ func newAnimation(g *gif.GIF, startedAt time.Time) *animation {
 	for _, delay := range delays {
 		total += delay
 	}
-	if total <= 0 {
-		return nil
-	}
 
 	return &animation{
 		frames:        frames,

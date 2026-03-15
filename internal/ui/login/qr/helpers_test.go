@@ -3,7 +3,7 @@ package qr
 import (
 	"testing"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 

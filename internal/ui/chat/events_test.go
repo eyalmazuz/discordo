@@ -53,3 +53,15 @@ func TestModelCloseState(t *testing.T) {
 		}
 	})
 }
+
+func TestCloseLayer(t *testing.T) {
+	cmd := closeLayer("testLayer")
+	event := cmd()
+	e, ok := event.(*closeLayerEvent)
+	if !ok {
+		t.Fatalf("expected *closeLayerEvent, got %T", event)
+	}
+	if e.name != "testLayer" {
+		t.Errorf("expected name %q, got %q", "testLayer", e.name)
+	}
+}

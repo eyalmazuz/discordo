@@ -8,7 +8,7 @@ import (
 	"time"
 
 	imgpkg "github.com/ayn2op/discordo/internal/image"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 

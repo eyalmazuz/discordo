@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gorilla/websocket"

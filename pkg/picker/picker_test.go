@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/keybind"
 	"github.com/gdamore/tcell/v3"
 )
 

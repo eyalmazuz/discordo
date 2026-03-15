@@ -23,7 +23,7 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/httputil"
 	"github.com/diamondburned/arikawa/v3/utils/httputil/httpdriver"
 	"github.com/diamondburned/ningen/v3"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
 )
@@ -195,7 +195,7 @@ func newMockChatModel() *Model {
 }
 
 type mockEmoteScreen struct {
-	MockScreen
+	completeMockScreen
 	cells map[string]string // "x,y" -> url
 }
 

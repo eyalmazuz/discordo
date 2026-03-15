@@ -7,7 +7,7 @@ import (
 
 	"github.com/ayn2op/discordo/internal/http"
 	"github.com/ayn2op/discordo/internal/notifications"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/session"
@@ -191,31 +191,31 @@ func (v *Model) onMessageUpdate(message *gateway.MessageUpdateEvent) {
 	}
 }
 
-func (v *Model) onMessageDelete(message *gateway.MessageDeleteEvent) {
-	if selected := v.SelectedChannel(); selected != nil && selected.ID == message.ChannelID {
+func (v *Model) onMessageDelete(event *gateway.MessageDeleteEvent) {
+	slog.Info("onMessageDelete start", "id", event.ID)
+	if selected := v.SelectedChannel(); selected != nil && selected.ID == event.ChannelID {
+
 		prevCursor := v.messagesList.Cursor()
 		deletedIndex := slices.IndexFunc(v.messagesList.messages, func(m discord.Message) bool {
-			return m.ID == message.ID
+			return m.ID == event.ID
 		})
 		if deletedIndex < 0 {
 			return
 		}
 
-			queueUpdateDraw(v.app, func() {
-				v.messagesList.deleteMessage(deletedIndex)
-			})
+		queueUpdateDraw(v.app, func() {
+			v.messagesList.deleteMessage(deletedIndex)
+		})
 
 		// Keep cursor stable when possible after removal.
 		newCursor := prevCursor
 		if prevCursor == deletedIndex {
 			// Prefer previous item; fall forward if we deleted the first.
 			newCursor = deletedIndex - 1
-			if newCursor < 0 {
-				if deletedIndex < len(v.messagesList.messages) {
-					newCursor = deletedIndex
-				} else {
-					newCursor = -1
-				}
+			slog.Info("onMessageDelete debug", "newCursor", newCursor, "deletedIndex", deletedIndex, "len", len(v.messagesList.messages))
+			if newCursor < 0 && deletedIndex < len(v.messagesList.messages) {
+				slog.Info("onMessageDelete: falling forward")
+				newCursor = deletedIndex
 			}
 		} else if prevCursor > deletedIndex {
 			// Shift back since the list shrank before the cursor.

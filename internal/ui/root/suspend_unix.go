@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 )
 
 var (

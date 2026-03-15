@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/session"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"

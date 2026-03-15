@@ -5,6 +5,8 @@ import (
 	"errors"
 	"image"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -115,4 +117,22 @@ func TestRun(t *testing.T) {
 			t.Fatalf("stdout = %q", stdout.String())
 		}
 	})
+}
+
+func TestMainFuncProcess(t *testing.T) {
+	if os.Getenv("TEST_MAIN_PROCESS") == "1" {
+		os.Stdin.Close()
+		os.Stdout.Close()
+		os.Stderr.Close()
+		main()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestMainFuncProcess")
+	cmd.Env = append(os.Environ(), "TEST_MAIN_PROCESS=1")
+	err := cmd.Run()
+	if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+		return
+	}
+	t.Fatalf("process ran with err %v, want exit status 1", err)
 }

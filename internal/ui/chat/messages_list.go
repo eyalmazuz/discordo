@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview/layers"
 
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
@@ -26,9 +26,9 @@ import (
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/help"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
@@ -1026,9 +1026,6 @@ func wrapStyledLine(line tview.Line, width int) []tview.Line {
 			cluster, nextRest, boundaries, nextState := uniseg.StepString(rest, state)
 			state = nextState
 			rest = nextRest
-			if cluster == "" {
-				continue
-			}
 
 			// Use grapheme width (not rune count) so wrapping stays correct with wide glyphs, emoji, and combining characters.
 			clusterWidth := graphemeClusterWidth(boundaries)
@@ -1872,10 +1869,6 @@ func (ml *messagesList) pin() {
 	}
 
 	selected := ml.chatView.SelectedChannel()
-	if selected == nil {
-		return
-	}
-
 	if err := pinMessageFunc(ml.chatView.state.State, selected.ID, msg.ID, ""); err != nil {
 		slog.Error("failed to pin message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
 		return

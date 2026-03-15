@@ -2,10 +2,11 @@ package qr
 
 import (
 	"crypto/rsa"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"github.com/skip2/go-qrcode"
 )
@@ -110,6 +111,20 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 		if cmd == nil {
 			t.Fatal("expected nonce proof event to return a command")
 		}
+	})
+
+	t.Run("EventError", func(t *testing.T) {
+		errEvent := tcell.NewEventError(errors.New("test error"))
+		cmd := m.HandleEvent(errEvent)
+		if cmd == nil {
+			t.Fatal("expected EventError to return a command")
+		}
+		if m.msg != "test error" {
+			t.Errorf("Unexpected message: %q", m.msg)
+		}
+		// The command is a batch that contains the error event again.
+		// Since we cannot easily introspect the batch command, just executing it is enough for coverage.
+		cmd()
 	})
 
 	t.Run("cancelEvent", func(t *testing.T) {

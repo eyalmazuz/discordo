@@ -3,7 +3,7 @@ package image
 import (
 	"image"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"golang.org/x/image/draw"
 )

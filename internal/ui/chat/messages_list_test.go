@@ -9,7 +9,7 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/markdown"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )
@@ -502,7 +502,7 @@ func TestMessagesList_EmoteClearTrailingCells(t *testing.T) {
 
 	url := "https://cdn.discordapp.com/emojis/42.png?v=1"
 	screen := &mockEmoteScreen{
-		MockScreen: MockScreen{},
+		completeMockScreen: completeMockScreen{},
 		cells: map[string]string{
 			// Two adjacent emotes with the same URL should keep both leading cells.
 			"10,5": url,

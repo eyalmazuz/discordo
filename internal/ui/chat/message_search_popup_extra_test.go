@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"

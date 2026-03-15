@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/gdamore/tcell/v3"
@@ -337,4 +337,7 @@ func TestGuildsTree_HandleEvent(t *testing.T) {
 	
 	// Test SelectCurrent
 	gt.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+
+	// Test TreeViewSelectedEvent
+	gt.HandleEvent(&tview.TreeViewSelectedEvent{Node: node})
 }

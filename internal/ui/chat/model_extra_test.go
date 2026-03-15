@@ -9,8 +9,8 @@ import (
 	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/session"

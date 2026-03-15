@@ -2,7 +2,7 @@ package config
 
 import (
 	"github.com/BurntSushi/toml"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview/keybind"
 )
 
 type Keybind struct {

@@ -1,6 +1,6 @@
 package picker
 
-import "github.com/ayn2op/tview"
+import "github.com/eyalmazuz/tview"
 
 type Item struct {
 	Text       string

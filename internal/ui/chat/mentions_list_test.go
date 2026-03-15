@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/ayn2op/discordo/internal/markdown"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
 )
@@ -148,4 +148,123 @@ func TestMentionsListClearQueuesKittyDeletesForAutocompleteEmoji(t *testing.T) {
 	if m.hasPendingAfterDraw() {
 		t.Fatal("expected AfterDraw to drain pending kitty cleanup")
 	}
+}
+
+func TestMentionsList_LineForEmoji(t *testing.T) {
+	chat := newMockChatModel()
+	m := newMentionsList(chat.cfg, chat)
+
+	t.Run("invalid ID", func(t *testing.T) {
+		emoji := discord.Emoji{Name: "smile"} // No ID
+		line := m.lineForEmoji(emoji)
+		if len(line) != 1 || line[0].Text != "smile" {
+			t.Fatalf("expected simple label for invalid ID emoji, got %#v", line)
+		}
+	})
+
+	t.Run("valid ID", func(t *testing.T) {
+		emoji := discord.Emoji{ID: 123, Name: "kekw"}
+		line := m.lineForEmoji(emoji)
+		if len(line) != 2 || !strings.Contains(line[0].Text, "kekw") {
+			t.Fatalf("expected preview and label for valid ID emoji, got %#v", line)
+		}
+	})
+}
+
+func TestMentionsList_Draw(t *testing.T) {
+	chat := newMockChatModel()
+	chat.cfg.InlineImages.Enabled = true
+	chat.messagesList.useKitty = true
+	m := newMentionsList(chat.cfg, chat)
+
+	screen := &mockEmoteScreen{
+		cells: make(map[string]string),
+	}
+
+	// Add an emoji to the list to be drawn
+	emoji := discord.Emoji{ID: 123, Name: "kekw"}
+	m.appendEmoji(emoji)
+	m.rebuild()
+
+	// Mock screen content to have an emoji URL in a cell style
+	screen.cells["10,5"] = emoji.EmojiURL()
+
+	chat.messagesList.cellW = 10
+	chat.messagesList.cellH = 20
+
+	m.SetRect(0, 0, 80, 24)
+	m.Draw(screen) // First Draw populates emoteItemByKey
+	
+	// Force item into state where it will be queued for delete on next rebuild/clear
+	for _, item := range m.emoteItemByKey {
+		item.pendingPlace = true
+	}
+	
+	m.Draw(screen) // Second Draw triggers prepareKittyItemsForFrame
+
+	if m.lastScreen != screen {
+		t.Errorf("expected lastScreen to be set after Draw")
+	}
+
+	m.queueKittyDeletes() // Trigger more lines
+
+	tty := &mockTty{}
+	// Test AfterDraw with kitty enabled
+	chat.messagesList.useKitty = true
+	m.AfterDraw(&screenWithTty{tty: tty})
+
+	t.Run("AfterDraw early return 1", func(t *testing.T) {
+		m.cfg.InlineImages.Enabled = false
+		m.pendingDeletes = nil
+		m.AfterDraw(&MockScreen{})
+	})
+
+	t.Run("AfterDraw early return 2", func(t *testing.T) {
+		m.cfg.InlineImages.Enabled = false
+		m.pendingDeletes = append(m.pendingDeletes, 123)
+		m.AfterDraw(&screenWithTty{tty: tty})
+	})
+}
+
+func TestMentionsList_ScanAndDrawEmotes_Disabled(t *testing.T) {
+	chat := newMockChatModel()
+	chat.cfg.InlineImages.Enabled = false
+	m := newMentionsList(chat.cfg, chat)
+	m.scanAndDrawEmotes(&MockScreen{})
+}
+
+func TestMentionsList_ScanAndDrawEmotes_NilItem(t *testing.T) {
+	chat := newMockChatModel()
+	chat.cfg.InlineImages.Enabled = true
+	m := newMentionsList(chat.cfg, chat)
+	m.imageCache = nil // Will cause previewItemByURL to return nil
+
+	screen := &mockEmoteScreen{
+		cells: map[string]string{
+			"10,5": "https://cdn.discordapp.com/emojis/123.png",
+		},
+	}
+	m.SetRect(0, 0, 80, 24)
+	m.scanAndDrawEmotes(screen)
+}
+
+func TestMentionsList_PreviewItemByURL(t *testing.T) {
+	chat := newMockChatModel()
+	m := newMentionsList(chat.cfg, chat)
+
+	t.Run("nil imageCache", func(t *testing.T) {
+		m.imageCache = nil
+		if item := m.previewItemByURL("key", "url"); item != nil {
+			t.Errorf("expected nil item for nil imageCache, got %v", item)
+		}
+	})
+
+	t.Run("AfterDraw without tty", func(t *testing.T) {
+		m.cfg.InlineImages.Enabled = true
+		if m.messagesList != nil {
+			m.messagesList.useKitty = true
+		}
+		m.pendingDeletes = append(m.pendingDeletes, 123)
+		m.AfterDraw(&MockScreen{})
+	})
 }

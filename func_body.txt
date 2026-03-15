@@ -1,0 +1,87 @@
+func TestMessagesList_MoreBranches(t *testing.T) {
+	t.Run("yankContent_Error", func(t *testing.T) {
+		m := newTestModel()
+		ml := m.messagesList
+		ml.SetCursor(-1) // Will cause selectedMessage to error
+		if cmd := ml.yankContent(); cmd != nil {
+			t.Errorf("expected nil command for no selection, got %T", cmd)
+		}
+	})
+
+	t.Run("setMessagePinned_Branches", func(t *testing.T) {
+		m := newTestModel()
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1}, true)
+		ml := m.messagesList
+		msg := discord.Message{ID: 1, ChannelID: 2, Content: "kek"}
+		ml.setMessages([]discord.Message{msg})
+		m.state.Cabinet.MessageStore.MessageSet(&msg, false)
+		
+		// message not found
+		ml.setMessagePinned(2, 99, true)
+		
+		// message found
+		ml.setMessagePinned(2, 1, true)
+	})
+
+	t.Run("confirmPin_Branches", func(t *testing.T) {
+		m := newTestModel()
+		m.state.Call(&gateway.ReadyEvent{User: discord.User{ID: 1}})
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1}, true)
+		ml := m.messagesList
+		
+		// no selection
+		ml.SetCursor(-1)
+		ml.confirmPin()
+		
+		// with selection
+		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
+		m.SetSelectedChannel(ch)
+		m.state.Cabinet.ChannelStore.ChannelSet(ch, false)
+		setPermissionsForUser(m, 10, ch, discord.User{ID: 1}, discord.PermissionManageMessages)
+		
+		ml.setMessages([]discord.Message{{ID: 1, ChannelID: 2, Author: discord.User{ID: 1}}})
+		ml.SetCursor(0)
+		ml.confirmPin()
+	})
+
+	t.Run("pin_Branches", func(t *testing.T) {
+		m := newTestModel()
+		m.state.Call(&gateway.ReadyEvent{User: discord.User{ID: 1}})
+		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1}, true)
+		ml := m.messagesList
+		
+		// no selection
+		ml.SetCursor(-1)
+		ml.pin()
+
+		// with selection
+		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
+		m.SetSelectedChannel(ch)
+		m.state.Cabinet.ChannelStore.ChannelSet(ch, false)
+		setPermissionsForUser(m, 10, ch, discord.User{ID: 1}, discord.PermissionManageMessages)
+		
+		ml.setMessages([]discord.Message{{ID: 1, ChannelID: 2, Author: discord.User{ID: 1}}})
+		ml.SetCursor(0)
+
+		// stub pinMessageFunc
+		oldPinMessageFunc := pinMessageFunc
+		defer func() { pinMessageFunc = oldPinMessageFunc }()
+		
+		called := false
+		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
+			called = true
+			return nil
+		}
+		
+		ml.pin()
+		if !called {
+			t.Errorf("expected pinMessageFunc to be called")
+		}
+		
+		// error case
+		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
+			return errors.New("pin fail")
+		}
+		ml.pin()
+	})
+}

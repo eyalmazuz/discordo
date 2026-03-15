@@ -8,9 +8,9 @@ import (
 
 	"github.com/ayn2op/discordo/internal/ui"
 	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/keybind"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/session"
 	arikawastate "github.com/diamondburned/arikawa/v3/state"

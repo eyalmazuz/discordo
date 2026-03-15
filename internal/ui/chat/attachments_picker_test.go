@@ -4,7 +4,8 @@ import (
 	"testing"
 
 	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/ayn2op/tview/layers"
+	"github.com/eyalmazuz/tview/layers"
+	"github.com/gdamore/tcell/v3"
 )
 
 func TestAttachmentsPickerSelectionAndHelp(t *testing.T) {
@@ -53,4 +54,11 @@ func TestAttachmentsPickerSelectionAndHelp(t *testing.T) {
 	if m.HasLayer(attachmentsListLayerName) {
 		t.Fatal("expected close to remove the picker layer")
 	}
+
+	ap = newAttachmentsPicker(m.cfg, m)
+	m.app.SetFocus(ap)
+	
+	// Simulate ToggleFocus key event to trigger SetFocusFunc closure
+	event := tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)
+	ap.HandleEvent(event)
 }

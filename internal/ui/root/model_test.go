@@ -11,8 +11,8 @@ import (
 	loginpkg "github.com/ayn2op/discordo/internal/ui/login"
 	qrpkg "github.com/ayn2op/discordo/internal/ui/login/qr"
 	tokenpkg "github.com/ayn2op/discordo/internal/ui/login/token"
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/keybind"
 	"github.com/gdamore/tcell/v3"
 )
 

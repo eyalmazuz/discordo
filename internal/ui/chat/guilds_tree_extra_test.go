@@ -11,7 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/clipboard"
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/state/store"
 	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"

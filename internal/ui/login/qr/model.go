@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ayn2op/tview"
-	"github.com/ayn2op/tview/tabs"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/tabs"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gorilla/websocket"
 	"github.com/skip2/go-qrcode"

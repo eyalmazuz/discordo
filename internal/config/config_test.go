@@ -7,7 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ayn2op/discordo/internal/consts"
-	tviewkeybind "github.com/ayn2op/tview/keybind"
+	tviewkeybind "github.com/eyalmazuz/tview/keybind"
 	"github.com/gdamore/tcell/v3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
