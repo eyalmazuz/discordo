@@ -501,8 +501,11 @@ func TestMessageInputClipboardEditorPickerAndHandleEvent(t *testing.T) {
 	}
 
 	mi.SetText("undo", true)
-	if cmd := mi.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlU, "", tcell.ModNone)); cmd == nil {
-		t.Fatal("expected undo key to delegate to text area")
+	if cmd := mi.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlU, "", tcell.ModNone)); cmd != nil {
+		executeCommand(cmd)
+	}
+	if got := mi.GetText(); got != "undo" {
+		t.Fatalf("expected undo shortcut without undo history to leave text unchanged, got %q", got)
 	}
 
 	tempDir := t.TempDir()
@@ -980,9 +983,7 @@ func TestMessageInputSendFailureAndEventEdgeBranches(t *testing.T) {
 		mi.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
 		mi.mentionsList.rebuild()
 		m.ShowLayer(mentionsListLayerName)
-		if _, ok := mi.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected enter with visible mentions list to redraw")
-		}
+		mi.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 		if got := mi.GetText(); got != "@alice " {
 			t.Fatalf("expected enter to tab-complete visible mention, got %q", got)
 		}
@@ -1367,9 +1368,7 @@ func TestMessageInputEmojiAutocompleteTabKeyCompletesSelection(t *testing.T) {
 		t.Fatal("expected emoji autocomplete popup to be visible before tab completion")
 	}
 
-	if _, ok := mi.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected tab key to return redraw while emoji autocomplete is visible")
-	}
+	mi.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone))
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -1401,16 +1400,12 @@ func TestModel_HandleEvent_VisibleMentionsListRoutesEventsToMessageInput(t *test
 		t.Fatalf("expected mentions cursor to start at 0, got %d", got)
 	}
 
-	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatalf("expected ctrl+n to redraw while mentions are visible")
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone))
 	if got := mi.mentionsList.Cursor(); got != 1 {
 		t.Fatalf("expected ctrl+n to move mentions cursor to 1, got %d", got)
 	}
 
-	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatalf("expected ctrl+p to redraw while mentions are visible")
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if got := mi.mentionsList.Cursor(); got != 0 {
 		t.Fatalf("expected ctrl+p to move mentions cursor back to 0, got %d", got)
 	}

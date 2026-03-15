@@ -27,9 +27,7 @@ type TokenEvent struct {
 }
 
 func newTokenEvent(token string) *TokenEvent {
-	event := &TokenEvent{Token: token}
-	event.SetEventNow()
-	return event
+	return &TokenEvent{Token: token}
 }
 
 const remoteAuthGatewayURL = "wss://remote-auth-gateway.discord.gg/?v=2"
@@ -40,17 +38,13 @@ type connCreateEvent struct {
 }
 
 func newConnCreateEvent(conn *websocket.Conn) *connCreateEvent {
-	event := &connCreateEvent{conn: conn}
-	event.SetEventNow()
-	return event
+	return &connCreateEvent{conn: conn}
 }
 
 type connCloseEvent struct{ tcell.EventTime }
 
 func newConnCloseEvent() *connCloseEvent {
-	event := &connCloseEvent{}
-	event.SetEventNow()
-	return event
+	return &connCloseEvent{}
 }
 
 var (
@@ -68,7 +62,7 @@ var (
 )
 
 func (m *Model) connect() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		headers := http.Headers()
 		headers.Set("User-Agent", http.BrowserUserAgent)
 		conn, _, err := wsDial(remoteAuthGatewayURL, headers)
@@ -76,18 +70,18 @@ func (m *Model) connect() tview.Command {
 			return tcell.NewEventError(err)
 		}
 		return newConnCreateEvent(conn)
-	})
+	}
 }
 
 func (m *Model) close() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if m.conn != nil {
 			if err := wsClose(m.conn); err != nil {
 				return tcell.NewEventError(err)
 			}
 		}
 		return newConnCloseEvent()
-	})
+	}
 }
 
 type helloEvent struct {
@@ -97,9 +91,7 @@ type helloEvent struct {
 }
 
 func newHelloEvent(heartbeatInterval, timeoutMS int) *helloEvent {
-	event := &helloEvent{heartbeatInterval: heartbeatInterval, timeoutMS: timeoutMS}
-	event.SetEventNow()
-	return event
+	return &helloEvent{heartbeatInterval: heartbeatInterval, timeoutMS: timeoutMS}
 }
 
 type nonceProofEvent struct {
@@ -108,9 +100,7 @@ type nonceProofEvent struct {
 }
 
 func newNonceProofEvent(encryptedNonce string) *nonceProofEvent {
-	event := &nonceProofEvent{encryptedNonce: encryptedNonce}
-	event.SetEventNow()
-	return event
+	return &nonceProofEvent{encryptedNonce: encryptedNonce}
 }
 
 type pendingRemoteInitEvent struct {
@@ -119,9 +109,7 @@ type pendingRemoteInitEvent struct {
 }
 
 func newPendingRemoteInitEvent(fingerprint string) *pendingRemoteInitEvent {
-	event := &pendingRemoteInitEvent{fingerprint: fingerprint}
-	event.SetEventNow()
-	return event
+	return &pendingRemoteInitEvent{fingerprint: fingerprint}
 }
 
 type pendingTicketEvent struct {
@@ -130,9 +118,7 @@ type pendingTicketEvent struct {
 }
 
 func newPendingTicketEvent(encryptedUserPayload string) *pendingTicketEvent {
-	event := &pendingTicketEvent{encryptedUserPayload: encryptedUserPayload}
-	event.SetEventNow()
-	return event
+	return &pendingTicketEvent{encryptedUserPayload: encryptedUserPayload}
 }
 
 type pendingLoginEvent struct {
@@ -141,21 +127,17 @@ type pendingLoginEvent struct {
 }
 
 func newPendingLoginEvent(ticket string) *pendingLoginEvent {
-	event := &pendingLoginEvent{ticket: ticket}
-	event.SetEventNow()
-	return event
+	return &pendingLoginEvent{ticket: ticket}
 }
 
 type cancelEvent struct{ tcell.EventTime }
 
 func newCancelEvent() *cancelEvent {
-	event := &cancelEvent{}
-	event.SetEventNow()
-	return event
+	return &cancelEvent{}
 }
 
 func (m *Model) listen() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if m.conn == nil {
 			return nil
 		}
@@ -219,37 +201,35 @@ func (m *Model) listen() tview.Command {
 		default:
 			return nil
 		}
-	})
+	}
 }
 
 type heartbeatTickEvent struct{ tcell.EventTime }
 
 func newHeartbeatTickEvent() *heartbeatTickEvent {
-	event := &heartbeatTickEvent{}
-	event.SetEventNow()
-	return event
+	return &heartbeatTickEvent{}
 }
 
 func (m *Model) heartbeat() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		time.Sleep(m.heartbeatInterval)
 		return newHeartbeatTickEvent()
-	})
+	}
 }
 
 func (m *Model) sendHeartbeat() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if m.conn == nil {
 			return nil
 		}
 		data := struct {
 			Op string `json:"op"`
 		}{"heartbeat"}
-		if err := wsWriteJSON(m.conn,data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
-	})
+	}
 }
 
 type privateKeyEvent struct {
@@ -258,23 +238,21 @@ type privateKeyEvent struct {
 }
 
 func newPrivateKeyEvent(privateKey *rsa.PrivateKey) *privateKeyEvent {
-	event := &privateKeyEvent{privateKey: privateKey}
-	event.SetEventNow()
-	return event
+	return &privateKeyEvent{privateKey: privateKey}
 }
 
 func (m *Model) generatePrivateKey() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		privateKey, err := rsaGenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return tcell.NewEventError(err)
 		}
 		return newPrivateKeyEvent(privateKey)
-	})
+	}
 }
 
 func (m *Model) sendInit() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if m.privateKey == nil {
 			return tcell.NewEventError(errors.New("missing private key"))
 		}
@@ -287,15 +265,15 @@ func (m *Model) sendInit() tview.Command {
 			Op               string `json:"op"`
 			EncodedPublicKey string `json:"encoded_public_key"`
 		}{"init", encodedPublicKey}
-		if err := wsWriteJSON(m.conn,data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
-	})
+	}
 }
 
 func (m *Model) sendNonceProof(encryptedNonce string) tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		decodedNonce, err := base64.StdEncoding.DecodeString(encryptedNonce)
 		if err != nil {
 			return tcell.NewEventError(err)
@@ -311,11 +289,11 @@ func (m *Model) sendNonceProof(encryptedNonce string) tview.Command {
 			Op    string `json:"op"`
 			Nonce string `json:"nonce"`
 		}{"nonce_proof", encodedNonce}
-		if err := wsWriteJSON(m.conn,data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return tcell.NewEventError(err)
 		}
 		return nil
-	})
+	}
 }
 
 type qrCodeEvent struct {
@@ -324,13 +302,11 @@ type qrCodeEvent struct {
 }
 
 func newQRCodeEvent(qrCode *qrcode.QRCode) *qrCodeEvent {
-	event := &qrCodeEvent{qrCode: qrCode}
-	event.SetEventNow()
-	return event
+	return &qrCodeEvent{qrCode: qrCode}
 }
 
 func (m *Model) generateQRCode(fingerprint string) tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		content := "https://discord.com/ra/" + fingerprint
 		qrCode, err := qrCodeNew(content, qrcode.Low)
 		if err != nil {
@@ -338,7 +314,7 @@ func (m *Model) generateQRCode(fingerprint string) tview.Command {
 		}
 		qrCode.DisableBorder = true
 		return newQRCodeEvent(qrCode)
-	})
+	}
 }
 
 type userEvent struct {
@@ -348,13 +324,11 @@ type userEvent struct {
 }
 
 func newUserEvent(discriminator, username string) *userEvent {
-	event := &userEvent{discriminator: discriminator, username: username}
-	event.SetEventNow()
-	return event
+	return &userEvent{discriminator: discriminator, username: username}
 }
 
 func (m *Model) decryptUserPayload(encryptedPayload string) tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		decodedPayload, err := base64.StdEncoding.DecodeString(encryptedPayload)
 		if err != nil {
 			return tcell.NewEventError(err)
@@ -371,11 +345,11 @@ func (m *Model) decryptUserPayload(encryptedPayload string) tview.Command {
 		}
 
 		return newUserEvent(parts[1], parts[3])
-	})
+	}
 }
 
 func (m *Model) exchangeTicket(ticket string) tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		headers := http.Headers()
 		headers.Set("Referer", "https://discord.com/login")
 		if m.fingerprint != "" {
@@ -400,5 +374,5 @@ func (m *Model) exchangeTicket(ticket string) tview.Command {
 			return tcell.NewEventError(err)
 		}
 		return newTokenEvent(string(decryptedToken))
-	})
+	}
 }

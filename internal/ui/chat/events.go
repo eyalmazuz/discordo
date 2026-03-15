@@ -10,29 +10,38 @@ import (
 type LogoutEvent struct{ tcell.EventTime }
 
 func newLogoutEvent() *LogoutEvent {
-	event := &LogoutEvent{}
-	event.SetEventNow()
-	return event
+	return &LogoutEvent{}
 }
 
 func (v *Model) logout() tview.Command {
-	return tview.EventCommand(func() tcell.Event { return newLogoutEvent() })
+	return func() tcell.Event {
+		return newLogoutEvent()
+	}
 }
 
 type QuitEvent struct{ tcell.EventTime }
 
 func NewQuitEvent() *QuitEvent {
-	event := &QuitEvent{}
-	event.SetEventNow()
-	return event
+	return &QuitEvent{}
 }
 
 func (v *Model) closeState() tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if err := v.CloseState(); err != nil {
 			slog.Error("failed to close the session", "err", err)
 			return tcell.NewEventError(err)
 		}
 		return nil
-	})
+	}
+}
+
+type closeLayerEvent struct {
+	tcell.EventTime
+	name string
+}
+
+func closeLayer(name string) tview.Command {
+	return func() tcell.Event {
+		return &closeLayerEvent{name: name}
+	}
 }

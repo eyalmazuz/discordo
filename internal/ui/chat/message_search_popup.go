@@ -123,7 +123,6 @@ func (sp *messageSearchPopup) FullHelp() [][]keybind.Keybind {
 func (sp *messageSearchPopup) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
 	case *tview.KeyEvent:
-		redraw := tview.RedrawCommand{}
 		keys := sp.cfg.Keybinds.Picker
 
 		switch {
@@ -133,45 +132,45 @@ func (sp *messageSearchPopup) HandleEvent(event tcell.Event) tview.Command {
 			} else {
 				sp.chatView.app.SetFocus(sp.input)
 			}
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Up.Keybind):
 			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Down.Keybind):
 			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Top.Keybind):
 			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Bottom.Keybind):
 			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Select.Keybind):
 			if sp.input.HasFocus() {
 				sp.search()
 			} else {
 				sp.selectCurrent()
 			}
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Cancel.Keybind):
 			sp.close(sp.previousFocus)
-			return redraw
+			return nil
 		}
 
 		if sp.list.HasFocus() && event.Key() == tcell.KeyRune {
 			switch event.Str() {
 			case "j":
 				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "k":
 				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "g":
 				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "G":
 				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
-				return redraw
+				return nil
 			}
 		}
 

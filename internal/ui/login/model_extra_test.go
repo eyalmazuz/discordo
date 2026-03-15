@@ -30,11 +30,7 @@ func TestLoginModelCopyError(t *testing.T) {
 	}
 
 	cmd := m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 0})
-	eventCmd, ok := cmd.(tview.EventCommand)
-	if !ok {
-		t.Fatalf("expected copy button to return EventCommand, got %T", cmd)
-	}
-	event := eventCmd()
+	event := runCommand(t, cmd)
 	if _, ok := event.(*tcell.EventError); !ok {
 		t.Fatalf("expected clipboard write failure to return EventError, got %T", event)
 	}
@@ -48,7 +44,7 @@ func TestLoginModelOnErrorWithDefaultDialogStyle(t *testing.T) {
 	cfg.Theme.Dialog.Style.Style = tcell.StyleDefault
 	cfg.Theme.Dialog.BackgroundStyle.Style = tcell.StyleDefault
 
-	m := NewModel(tview.NewApplication(), cfg)
+	m := NewModel(cfg)
 	m.onError(errors.New("plain"))
 
 	if !m.HasLayer(errorLayerName) {
@@ -67,7 +63,7 @@ func TestLoginModelOnErrorWithStyledDialog(t *testing.T) {
 	cfg.Theme.Dialog.Style.Style = tcell.StyleDefault.Foreground(tcell.ColorBlue).Background(tcell.ColorRed)
 	cfg.Theme.Dialog.BackgroundStyle.Style = tcell.StyleDefault.Background(tcell.ColorGreen)
 
-	m := NewModel(tview.NewApplication(), cfg)
+	m := NewModel(cfg)
 	m.onError(errors.New("styled"))
 
 	if !m.HasLayer(errorLayerName) {

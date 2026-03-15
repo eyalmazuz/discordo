@@ -80,7 +80,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 			return nil, nil, errors.New("dial failed")
 		}
 
-		event := m.connect().(tview.EventCommand)()
+		event := runCommand(t, m.connect())
 		if _, ok := event.(*tcell.EventError); !ok {
 			t.Fatalf("expected connect failure to return EventError, got %T", event)
 		}
@@ -88,7 +88,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 
 	t.Run("close nil connection", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		event := m.close().(tview.EventCommand)()
+		event := runCommand(t, m.close())
 		if _, ok := event.(*connCloseEvent); !ok {
 			t.Fatalf("expected nil close to return connCloseEvent, got %T", event)
 		}
@@ -101,7 +101,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		t.Cleanup(func() { wsClose = oldWsClose })
 		wsClose = func(*websocket.Conn) error { return errors.New("close failed") }
 
-		event := m.close().(tview.EventCommand)()
+		event := runCommand(t, m.close())
 		if _, ok := event.(*tcell.EventError); !ok {
 			t.Fatalf("expected close failure to return EventError, got %T", event)
 		}
@@ -109,7 +109,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 
 	t.Run("listen branches", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		if event := m.listen().(tview.EventCommand)(); event != nil {
+		if event := runCommand(t, m.listen()); event != nil {
 			t.Fatalf("expected nil listen with no connection, got %T", event)
 		}
 
@@ -120,21 +120,21 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		wsReadMessage = func(*websocket.Conn) (int, []byte, error) {
 			return websocket.TextMessage, nil, errors.New("read failed")
 		}
-		if _, ok := m.listen().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.listen()).(*tcell.EventError); !ok {
 			t.Fatal("expected read failure to return EventError")
 		}
 
 		wsReadMessage = func(*websocket.Conn) (int, []byte, error) {
 			return websocket.TextMessage, []byte("{"), nil
 		}
-		if _, ok := m.listen().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.listen()).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid JSON to return EventError")
 		}
 
 		wsReadMessage = func(*websocket.Conn) (int, []byte, error) {
 			return websocket.TextMessage, []byte(`{"op":"unknown"}`), nil
 		}
-		if event := m.listen().(tview.EventCommand)(); event != nil {
+		if event := runCommand(t, m.listen()); event != nil {
 			t.Fatalf("expected unknown op to be ignored, got %T", event)
 		}
 
@@ -149,7 +149,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 			wsReadMessage = func(*websocket.Conn) (int, []byte, error) {
 				return websocket.TextMessage, []byte(payload), nil
 			}
-			if _, ok := m.listen().(tview.EventCommand)().(*tcell.EventError); !ok {
+			if _, ok := runCommand(t, m.listen()).(*tcell.EventError); !ok {
 				t.Fatalf("expected typed payload decode failure for %s", payload)
 			}
 		}
@@ -157,7 +157,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 
 	t.Run("send heartbeat", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		if event := m.sendHeartbeat().(tview.EventCommand)(); event != nil {
+		if event := runCommand(t, m.sendHeartbeat()); event != nil {
 			t.Fatalf("expected nil heartbeat when disconnected, got %T", event)
 		}
 
@@ -166,14 +166,14 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		t.Cleanup(func() { wsWriteJSON = oldWsWriteJSON })
 		wsWriteJSON = func(*websocket.Conn, any) error { return errors.New("write failed") }
 
-		if _, ok := m.sendHeartbeat().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendHeartbeat()).(*tcell.EventError); !ok {
 			t.Fatal("expected heartbeat write failure to return EventError")
 		}
 	})
 
 	t.Run("send init", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		if _, ok := m.sendInit().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendInit()).(*tcell.EventError); !ok {
 			t.Fatal("expected missing private key to return EventError")
 		}
 
@@ -188,19 +188,19 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		t.Cleanup(func() { wsWriteJSON = oldWsWriteJSON })
 		wsWriteJSON = func(*websocket.Conn, any) error { return errors.New("write failed") }
 
-		if _, ok := m.sendInit().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendInit()).(*tcell.EventError); !ok {
 			t.Fatal("expected send init write failure to return EventError")
 		}
 
 		m.privateKey = &rsa.PrivateKey{}
-		if _, ok := m.sendInit().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendInit()).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid private key to fail during public key marshaling")
 		}
 	})
 
 	t.Run("send nonce proof", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		if _, ok := m.sendNonceProof("%%%").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendNonceProof("%%%")).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid base64 nonce to return EventError")
 		}
 
@@ -212,7 +212,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		m.conn = &websocket.Conn{}
 
 		raw := base64.StdEncoding.EncodeToString([]byte("not rsa payload"))
-		if _, ok := m.sendNonceProof(raw).(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendNonceProof(raw)).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid encrypted nonce to return EventError")
 		}
 
@@ -224,14 +224,14 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		oldWsWriteJSON := wsWriteJSON
 		t.Cleanup(func() { wsWriteJSON = oldWsWriteJSON })
 		wsWriteJSON = func(*websocket.Conn, any) error { return errors.New("write failed") }
-		if _, ok := m.sendNonceProof(base64.StdEncoding.EncodeToString(encryptedNonce)).(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.sendNonceProof(base64.StdEncoding.EncodeToString(encryptedNonce))).(*tcell.EventError); !ok {
 			t.Fatal("expected nonce proof write failure to return EventError")
 		}
 	})
 
 	t.Run("decrypt user payload", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
-		if _, ok := m.decryptUserPayload("%%%").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.decryptUserPayload("%%%")).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid base64 payload to return EventError")
 		}
 
@@ -242,7 +242,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		m.privateKey = key
 
 		raw := base64.StdEncoding.EncodeToString([]byte("not rsa payload"))
-		if _, ok := m.decryptUserPayload(raw).(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.decryptUserPayload(raw)).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid encrypted payload to return EventError")
 		}
 
@@ -250,7 +250,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("encrypt payload: %v", err)
 		}
-		if _, ok := m.decryptUserPayload(encoded).(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.decryptUserPayload(encoded)).(*tcell.EventError); !ok {
 			t.Fatal("expected malformed user payload to return EventError")
 		}
 	})
@@ -269,21 +269,21 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		exchangeTicketFn = func(*api.Client, string) (string, error) {
 			return "", errors.New("exchange failed")
 		}
-		if _, ok := m.exchangeTicket("ticket").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.exchangeTicket("ticket")).(*tcell.EventError); !ok {
 			t.Fatal("expected exchange failure to return EventError")
 		}
 
 		exchangeTicketFn = func(*api.Client, string) (string, error) {
 			return "%%%", nil
 		}
-		if _, ok := m.exchangeTicket("ticket").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.exchangeTicket("ticket")).(*tcell.EventError); !ok {
 			t.Fatal("expected invalid base64 token to return EventError")
 		}
 
 		exchangeTicketFn = func(*api.Client, string) (string, error) {
 			return base64.StdEncoding.EncodeToString([]byte("not rsa payload")), nil
 		}
-		if _, ok := m.exchangeTicket("ticket").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.exchangeTicket("ticket")).(*tcell.EventError); !ok {
 			t.Fatal("expected undecryptable token to return EventError")
 		}
 	})
@@ -301,14 +301,14 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		rsaGenerateKey = func(io.Reader, int) (*rsa.PrivateKey, error) {
 			return nil, errors.New("keygen failed")
 		}
-		if _, ok := m.generatePrivateKey().(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.generatePrivateKey()).(*tcell.EventError); !ok {
 			t.Fatal("expected generatePrivateKey failure to return EventError")
 		}
 
 		qrCodeNew = func(string, qrcode.RecoveryLevel) (*qrcode.QRCode, error) {
 			return nil, errors.New("qr failed")
 		}
-		if _, ok := m.generateQRCode("fingerprint").(tview.EventCommand)().(*tcell.EventError); !ok {
+		if _, ok := runCommand(t, m.generateQRCode("fingerprint")).(*tcell.EventError); !ok {
 			t.Fatal("expected generateQRCode failure to return EventError")
 		}
 	})
@@ -337,7 +337,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 			return encoded, nil
 		}
 
-		event := m.exchangeTicket("ticket").(tview.EventCommand)()
+		event := runCommand(t, m.exchangeTicket("ticket"))
 		tokenEvent, ok := event.(*TokenEvent)
 		if !ok || tokenEvent.Token != token {
 			t.Fatalf("expected token event with %q, got %#v", token, event)

@@ -11,11 +11,11 @@ import (
 var writeClipboard = clipboard.Write
 
 func setClipboard(content string) tview.Command {
-	return tview.EventCommand(func() tcell.Event {
+	return func() tcell.Event {
 		if err := writeClipboard(clipboard.FmtText, []byte(content)); err != nil {
 			slog.Error("failed to copy error message", "err", err)
 			return tcell.NewEventError(err)
 		}
 		return nil
-	})
+	}
 }

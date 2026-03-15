@@ -42,9 +42,7 @@ func TestMessagesList_HandleEvent_PinKeyOpensConfirmationDialog(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected pin key to redraw")
-	}
+	ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
@@ -135,26 +133,6 @@ func TestMessagesList_PinConfirmation_EnterPinsSelectedMessage(t *testing.T) {
 	}
 	if !strings.Contains(transport.path, "/channels/102/pins/13") {
 		t.Fatalf("expected pin request path, got %q", transport.path)
-	}
-}
-
-func executeModelCommand(m *Model, cmd tview.Command) {
-	switch cmd := cmd.(type) {
-	case nil:
-		return
-	case tview.BatchCommand:
-		for _, nested := range cmd {
-			executeModelCommand(m, nested)
-		}
-	case tview.EventCommand:
-		event := cmd()
-		if event != nil {
-			executeModelCommand(m, m.HandleEvent(event))
-		}
-	case tview.SetFocusCommand:
-		if cmd.Target != nil {
-			m.app.SetFocus(cmd.Target)
-		}
 	}
 }
 

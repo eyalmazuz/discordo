@@ -32,9 +32,7 @@ func TestMessageSearchPopupHandleEvent_NavigationAndCancel(t *testing.T) {
 	m.AddLayer(sp, layers.WithName(messageSearchLayerName), layers.WithVisible(true))
 	m.app.SetFocus(sp.input)
 
-	if _, ok := sp.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected redraw command when toggling focus")
-	}
+	sp.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone))
 	if m.app.GetFocus() != sp.list {
 		t.Fatalf("expected focus on results list, got %T", m.app.GetFocus())
 	}
@@ -84,9 +82,7 @@ func TestMessageSearchPopupHandleEvent_SelectFromList(t *testing.T) {
 		return nil
 	}
 
-	if _, ok := sp.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected selecting a result from the list to request a redraw")
-	}
+	sp.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 	if !selected {
 		t.Fatal("expected Enter on the results list to select the current item")
 	}
@@ -450,9 +446,7 @@ func TestMessageSearchPopupHandleEvent_ListSelectionBranches(t *testing.T) {
 		return nil
 	}
 
-	if _, ok := sp.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected redraw command when toggling focus back to the input")
-	}
+	sp.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone))
 	if m.app.GetFocus() != sp.input {
 		t.Fatalf("expected focus on input after tab, got %T", m.app.GetFocus())
 	}
@@ -502,9 +496,7 @@ func TestMessageSearchPopupAdditionalBranches(t *testing.T) {
 			tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone),
 			tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone),
 		} {
-			if _, ok := sp.HandleEvent(event).(tview.RedrawCommand); !ok {
-				t.Fatalf("expected redraw for event %v", event)
-			}
+			sp.HandleEvent(event)
 		}
 	})
 

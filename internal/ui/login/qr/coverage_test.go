@@ -14,8 +14,8 @@ import (
 	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/gdamore/tcell/v3"
-	"github.com/skip2/go-qrcode"
 	"github.com/gorilla/websocket"
+	"github.com/skip2/go-qrcode"
 )
 
 func TestEventConstructors(t *testing.T) {
@@ -127,7 +127,7 @@ func TestModel_HandleEvent_Lifecycle(t *testing.T) {
 			t.Errorf("Expected message 'fail', got %q", m.msg)
 		}
 	})
-	
+
 	t.Run("pendingRemoteInitEvent", func(t *testing.T) {
 		m.HandleEvent(&pendingRemoteInitEvent{fingerprint: "test-fp"})
 		if m.fingerprint != "test-fp" {
@@ -152,7 +152,7 @@ func TestModel_HandleEvent_Lifecycle(t *testing.T) {
 			t.Errorf("Unexpected message: %q", m.msg)
 		}
 	})
-	
+
 	t.Run("privateKeyEvent", func(t *testing.T) {
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
 		m.HandleEvent(&privateKeyEvent{privateKey: key})
@@ -174,7 +174,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		defer func() { wsDial = oldWsDial }()
 
 		cmd := m.connect()
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if _, ok := event.(*connCreateEvent); !ok {
 			t.Errorf("Expected connCreateEvent, got %T", event)
 		}
@@ -187,7 +187,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		defer func() { wsClose = oldWsClose }()
 
 		cmd := m.close()
-		cmd.(tview.EventCommand)()
+		runCommand(t, cmd)
 	})
 
 	t.Run("listen_Branches", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 					return websocket.TextMessage, data, nil
 				}
 				cmd := m.listen()
-				event := cmd.(tview.EventCommand)()
+				event := runCommand(t, cmd)
 				if _, ok := reflectTypeMatch(event, tt.wantType); !ok {
 					t.Errorf("Expected %T, got %T", tt.wantType, event)
 				}
@@ -229,7 +229,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 	t.Run("heartbeat_Wait", func(t *testing.T) {
 		m.heartbeatInterval = 10 * time.Millisecond
 		cmd := m.heartbeat()
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if _, ok := event.(*heartbeatTickEvent); !ok {
 			t.Errorf("Expected heartbeatTickEvent, got %T", event)
 		}
@@ -242,7 +242,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		defer func() { wsWriteJSON = oldWsWrite }()
 
 		cmd := m.sendHeartbeat()
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if event != nil {
 			t.Errorf("Expected nil event, got %T", event)
 		}
@@ -250,7 +250,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 
 	t.Run("generatePrivateKey_Success", func(t *testing.T) {
 		cmd := m.generatePrivateKey()
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if _, ok := event.(*privateKeyEvent); !ok {
 			t.Errorf("Expected privateKeyEvent, got %T", event)
 		}
@@ -264,7 +264,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		defer func() { wsWriteJSON = oldWsWrite }()
 
 		cmd := m.sendInit()
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if event != nil {
 			t.Errorf("Expected nil event, got %T", event)
 		}
@@ -274,17 +274,17 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		m.conn = &websocket.Conn{}
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
 		m.privateKey = key
-		
+
 		nonce := []byte("nonce")
 		encryptedNonce, _ := rsa.EncryptOAEP(sha256.New(), rand.Reader, &key.PublicKey, nonce, nil)
 		encodedNonce := base64.StdEncoding.EncodeToString(encryptedNonce)
-		
+
 		oldWsWrite := wsWriteJSON
 		wsWriteJSON = func(conn *websocket.Conn, v any) error { return nil }
 		defer func() { wsWriteJSON = oldWsWrite }()
 
 		cmd := m.sendNonceProof(encodedNonce)
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if event != nil {
 			t.Errorf("Expected nil event, got %T", event)
 		}
@@ -293,13 +293,13 @@ func TestModel_Commands_Mocks(t *testing.T) {
 	t.Run("decryptUserPayload_Success", func(t *testing.T) {
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
 		m.privateKey = key
-		
+
 		payload := "id:1234:avatar:user"
 		encryptedPayload, _ := rsa.EncryptOAEP(sha256.New(), rand.Reader, &key.PublicKey, []byte(payload), nil)
 		encodedPayload := base64.StdEncoding.EncodeToString(encryptedPayload)
-		
+
 		cmd := m.decryptUserPayload(encodedPayload)
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if e, ok := event.(*userEvent); !ok || e.username != "user" || e.discriminator != "1234" {
 			t.Errorf("Expected userEvent user:user disc:1234, got %v", event)
 		}
@@ -308,11 +308,11 @@ func TestModel_Commands_Mocks(t *testing.T) {
 	t.Run("exchangeTicket_Success", func(t *testing.T) {
 		key, _ := rsa.GenerateKey(rand.Reader, 2048)
 		m.privateKey = key
-		
+
 		token := "my-secret-token"
 		encryptedToken, _ := rsa.EncryptOAEP(sha256.New(), rand.Reader, &key.PublicKey, []byte(token), nil)
 		encodedToken := base64.StdEncoding.EncodeToString(encryptedToken)
-		
+
 		oldExchange := exchangeTicketFn
 		exchangeTicketFn = func(client *api.Client, ticket string) (string, error) {
 			return encodedToken, nil
@@ -320,7 +320,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 		defer func() { exchangeTicketFn = oldExchange }()
 
 		cmd := m.exchangeTicket("ticket")
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if e, ok := event.(*TokenEvent); !ok || e.Token != token {
 			t.Errorf("Expected TokenEvent with token, got %v", event)
 		}
@@ -328,7 +328,7 @@ func TestModel_Commands_Mocks(t *testing.T) {
 
 	t.Run("generateQRCode_Success", func(t *testing.T) {
 		cmd := m.generateQRCode("fp")
-		event := cmd.(tview.EventCommand)()
+		event := runCommand(t, cmd)
 		if _, ok := event.(*qrCodeEvent); !ok {
 			t.Errorf("Expected qrCodeEvent, got %T", event)
 		}
@@ -364,10 +364,10 @@ type mockScreen struct {
 	tcell.Screen
 }
 
-func (m *mockScreen) SetContent(int, int, rune, []rune, tcell.Style) {}
-func (m *mockScreen) Size() (int, int)                               { return 80, 24 }
+func (m *mockScreen) SetContent(int, int, rune, []rune, tcell.Style)          {}
+func (m *mockScreen) Size() (int, int)                                        { return 80, 24 }
 func (m *mockScreen) Put(x, y int, s string, style tcell.Style) (string, int) { return s, len(s) }
-func (m *mockScreen) PutStrStyled(x, y int, s string, style tcell.Style) {}
+func (m *mockScreen) PutStrStyled(x, y int, s string, style tcell.Style)      {}
 
 func TestModel_Draw_Extra(t *testing.T) {
 	app := tview.NewApplication()

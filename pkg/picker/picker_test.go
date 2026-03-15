@@ -79,13 +79,13 @@ func TestPicker_ListNavigation_HJKL(t *testing.T) {
 	if p.list.Cursor() != 0 {
 		t.Errorf("Expected cursor 0 after 'k', got %d", p.list.Cursor())
 	}
-	
+
 	// Simulate 'G' when list is focused
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "G", tcell.ModNone))
 	if p.list.Cursor() != 2 {
 		t.Errorf("Expected cursor 2 after 'G', got %d", p.list.Cursor())
 	}
-	
+
 	// Simulate 'g' when list is focused
 	p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone))
 	if p.list.Cursor() != 0 {
@@ -127,22 +127,22 @@ func TestPicker_SettersAndClears(t *testing.T) {
 	p := New()
 	p.SetScrollBarVisibility(tview.ScrollBarVisibilityAlways)
 	p.SetScrollBar(tview.NewScrollBar())
-	
+
 	p.SetSelectedFunc(func(item Item) {})
 	p.SetCancelFunc(func() {})
-	
+
 	p.AddItem(Item{Text: "test"})
 	p.Update()
 	if p.FilteredCount() != 1 {
 		t.Fatal("expected 1 item")
 	}
-	
+
 	p.ClearItems()
 	p.Update()
 	if p.FilteredCount() != 0 {
 		t.Fatal("expected 0 items after ClearItems")
 	}
-	
+
 	p.AddItem(Item{Text: "test2"})
 	p.Update()
 	p.ClearList()
@@ -166,26 +166,26 @@ func TestPicker_HandleEvent_Full(t *testing.T) {
 	p.AddItem(Item{Text: "item3"})
 	p.Update()
 	p.SetRect(0, 0, 100, 100)
-	
+
 	t.Run("KeyMapNavigation", func(t *testing.T) {
 		p.list.Focus(nil)
 		p.list.SetCursor(0)
-		
+
 		p.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 		if p.list.Cursor() != 1 {
 			t.Errorf("expected cursor 1, got %d", p.list.Cursor())
 		}
-		
+
 		p.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 		if p.list.Cursor() != 2 {
 			t.Errorf("expected cursor 2, got %d", p.list.Cursor())
 		}
-		
+
 		p.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 		if p.list.Cursor() != 1 {
 			t.Errorf("expected cursor 1, got %d", p.list.Cursor())
 		}
-		
+
 		p.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
 		if p.list.Cursor() != 0 {
 			t.Errorf("expected cursor 0, got %d", p.list.Cursor())
@@ -217,12 +217,12 @@ func TestPicker_onInputChanged(t *testing.T) {
 	p.AddItem(Item{Text: "apple", FilterText: "apple"})
 	p.AddItem(Item{Text: "banana", FilterText: "banana"})
 	p.Update()
-	
+
 	p.onInputChanged("ap")
 	if p.FilteredCount() != 1 {
 		t.Fatalf("expected 1 item, got %d", p.FilteredCount())
 	}
-	
+
 	p.onInputChanged("")
 	if p.FilteredCount() != 2 {
 		t.Fatalf("expected 2 items, got %d", p.FilteredCount())
@@ -255,21 +255,24 @@ func TestPicker_HandleEvent_ExtraBranches(t *testing.T) {
 		ToggleFocus: keybind.NewKeybind(keybind.WithKeys("tab")),
 	})
 
-	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected toggle focus with nil focus func to redraw")
+	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected toggle focus with nil focus func to return nil, got %T", cmd)
 	}
 
-	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected select key with no selection callback to redraw")
+	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected select key with no selection callback to return nil, got %T", cmd)
 	}
 
-	if _, ok := p.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected cancel key with no cancel callback to redraw")
+	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected cancel key with no cancel callback to return nil, got %T", cmd)
 	}
 
 	p.input.Focus(nil)
-	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone)); cmd == nil {
-		t.Fatal("expected rune navigation outside list focus to fall through to the embedded flex")
+	if cmd := p.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone)); cmd != nil {
+		t.Fatalf("expected rune navigation outside list focus to return nil, got %T", cmd)
+	}
+	if got := p.input.GetText(); got != "j" {
+		t.Fatalf("expected rune navigation outside list focus to update input text, got %q", got)
 	}
 
 	if cmd := p.HandleEvent(tcell.NewEventError(errors.New("boom"))); cmd != nil {

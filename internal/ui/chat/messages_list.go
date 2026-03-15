@@ -1298,75 +1298,70 @@ func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 			_, url := style.GetUrl()
 			if url != "" {
 				go ml.openURL(url)
-				return tview.RedrawCommand{}
+				return nil
 			}
 		}
 	case *tview.KeyEvent:
-		redraw := tview.RedrawCommand{}
 		switch {
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollUp.Keybind):
 			ml.ScrollUp()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollDown.Keybind):
 			ml.ScrollDown()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollTop.Keybind):
 			ml.ScrollToStart()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollBottom.Keybind):
 			ml.ScrollToEnd()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Cancel.Keybind):
 			ml.clearSelection()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectUp.Keybind):
 			ml.selectUp()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectDown.Keybind):
 			ml.selectDown()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectTop.Keybind):
 			ml.selectTop()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectBottom.Keybind):
 			ml.selectBottom()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectReply.Keybind):
 			ml.selectReply()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankID.Keybind):
-			ml.yankID()
-			return nil
+			return ml.yankMessageID()
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankContent.Keybind):
-			ml.yankContent()
-			return nil
+			return ml.yankContent()
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankURL.Keybind):
-			ml.yankURL()
-			return nil
+			return ml.yankURL()
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Open.Keybind) || event.Key() == tcell.KeyEnter:
 			ml.open()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.React.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == "+"):
 			ml.showReactionPicker()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
 			ml.confirmPin()
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			ml.reply(false)
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
 			ml.reply(true)
-			return redraw
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Edit.Keybind):
-			ml.edit()
-			return redraw
+			ml.editSelectedMessage()
+			return nil
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Delete.Keybind):
-			ml.delete()
-			return redraw
+			return ml.deleteSelectedMessage()
 		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.DeleteConfirm.Keybind):
 			ml.confirmDelete()
-			return redraw
+			return nil
 		}
 		// Do not fall through to List defaults for unmatched keys.
 		return nil
@@ -1517,46 +1512,49 @@ func (ml *messagesList) jumpToMessage(channel discord.Channel, messageID discord
 	return nil
 }
 
-func (ml *messagesList) yankID() {
+func (ml *messagesList) yankMessageID() tview.Command {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
-	go func() {
+	return func() tcell.Event {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.ID.String())); err != nil {
 			slog.Error("failed to copy message id", "err", err)
 		}
-	}()
+		return nil
+	}
 }
 
-func (ml *messagesList) yankContent() {
+func (ml *messagesList) yankContent() tview.Command {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
-	go func() {
+	return func() tcell.Event {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.Content)); err != nil {
 			slog.Error("failed to copy message content", "err", err)
 		}
-	}()
+		return nil
+	}
 }
 
-func (ml *messagesList) yankURL() {
+func (ml *messagesList) yankURL() tview.Command {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
-	go func() {
+	return func() tcell.Event {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.URL())); err != nil {
 			slog.Error("failed to copy message url", "err", err)
 		}
-	}()
+		return nil
+	}
 }
 
 func (ml *messagesList) open() {
@@ -1779,7 +1777,7 @@ func (ml *messagesList) reply(mention bool) {
 	ml.chatView.app.SetFocus(ml.chatView.messageInput)
 }
 
-func (ml *messagesList) edit() {
+func (ml *messagesList) editSelectedMessage() {
 	message, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
@@ -1796,6 +1794,10 @@ func (ml *messagesList) edit() {
 	ml.chatView.messageInput.edit = true
 	ml.chatView.messageInput.SetText(message.Content, true)
 	ml.chatView.app.SetFocus(ml.chatView.messageInput)
+}
+
+func (ml *messagesList) edit() {
+	ml.editSelectedMessage()
 }
 
 func (ml *messagesList) canManagePins() bool {
@@ -1885,7 +1887,9 @@ func (ml *messagesList) pin() {
 func (ml *messagesList) confirmDelete() {
 	onChoice := func(choice string) {
 		if choice == "Yes" {
-			ml.delete()
+			if command := ml.deleteSelectedMessage(); command != nil {
+				command()
+			}
 		}
 	}
 
@@ -1896,34 +1900,38 @@ func (ml *messagesList) confirmDelete() {
 	)
 }
 
-func (ml *messagesList) delete() {
-	msg, err := ml.selectedMessage()
+func (ml *messagesList) deleteSelectedMessage() tview.Command {
+	selectedMessage, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
-	if msg.GuildID.IsValid() {
-		me, _ := ml.chatView.state.Cabinet.Me()
-		if msg.Author.ID != me.ID && !ml.chatView.state.HasPermissions(msg.ChannelID, discord.PermissionManageMessages) {
-			slog.Error("failed to delete message; missing relevant permissions", "channel_id", msg.ChannelID, "message_id", msg.ID)
-			return
+	return func() tcell.Event {
+		if selectedMessage.GuildID.IsValid() {
+			me, _ := ml.chatView.state.Cabinet.Me()
+			if selectedMessage.Author.ID != me.ID && !ml.chatView.state.HasPermissions(selectedMessage.ChannelID, discord.PermissionManageMessages) {
+				slog.Error("failed to delete message; missing relevant permissions", "channel_id", selectedMessage.ChannelID, "message_id", selectedMessage.ID)
+				return nil
+			}
 		}
-	}
 
-	selected := ml.chatView.SelectedChannel()
-	if selected == nil {
-		return
-	}
+		if err := deleteMessageFunc(ml.chatView.state.State, selectedMessage.ChannelID, selectedMessage.ID, ""); err != nil {
+			slog.Error("failed to delete message", "channel_id", selectedMessage.ChannelID, "message_id", selectedMessage.ID, "err", err)
+			return nil
+		}
 
-	if err := deleteMessageFunc(ml.chatView.state.State, selected.ID, msg.ID, ""); err != nil {
-		slog.Error("failed to delete message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
-		return
+		if err := messageRemoveFunc(ml.chatView.state.State, selectedMessage.ChannelID, selectedMessage.ID); err != nil {
+			slog.Error("failed to delete message", "channel_id", selectedMessage.ChannelID, "message_id", selectedMessage.ID, "err", err)
+			return nil
+		}
+		return nil
 	}
+}
 
-	if err := messageRemoveFunc(ml.chatView.state.State, selected.ID, msg.ID); err != nil {
-		slog.Error("failed to delete message", "channel_id", selected.ID, "message_id", msg.ID, "err", err)
-		return
+func (ml *messagesList) delete() {
+	if command := ml.deleteSelectedMessage(); command != nil {
+		command()
 	}
 }
 

@@ -29,9 +29,9 @@ func TestModel_HandleEvent_Submission(t *testing.T) {
 	if cmd == nil {
 		t.Errorf("Expected a command for FormSubmitEvent, got nil")
 	}
-	
+
 	// Execute command
-	event := cmd.(tview.EventCommand)()
+	event := cmd()
 	if e, ok := event.(*TokenEvent); !ok || e.Token != token {
 		t.Errorf("Expected TokenEvent with token, got %v", event)
 	}
@@ -66,7 +66,7 @@ func TestModel_HandleEvent_Fallback(t *testing.T) {
 
 func TestTokenCommand(t *testing.T) {
 	cmd := tokenCommand("cmd-token")
-	event := cmd.(tview.EventCommand)()
+	event := cmd()
 	if e, ok := event.(*TokenEvent); !ok || e.Token != "cmd-token" {
 		t.Errorf("Expected TokenEvent with token, got %v", event)
 	}

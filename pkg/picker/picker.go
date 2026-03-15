@@ -178,7 +178,6 @@ func (p *Picker) onInputChanged(text string) {
 func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
 	case *tview.KeyEvent:
-		redraw := tview.RedrawCommand{}
 		if p.keyMap != nil {
 			switch {
 			case keybind.Matches(event, p.keyMap.ToggleFocus):
@@ -189,27 +188,27 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 						p.setFocus(p.input)
 					}
 				}
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Up):
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Down):
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Top):
 				p.list.SetCursor(0)
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Bottom):
 				p.list.SetCursor(len(p.filtered) - 1)
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Select):
 				p.onListSelected(p.list.Cursor())
-				return redraw
+				return nil
 			case keybind.Matches(event, p.keyMap.Cancel):
 				if p.onCancel != nil {
 					p.onCancel()
 				}
-				return redraw
+				return nil
 			}
 		}
 
@@ -217,16 +216,16 @@ func (p *Picker) HandleEvent(event tcell.Event) tview.Command {
 			switch event.Str() {
 			case "j":
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "k":
 				p.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "g":
 				p.list.SetCursor(0)
-				return redraw
+				return nil
 			case "G":
 				p.list.SetCursor(len(p.filtered) - 1)
-				return redraw
+				return nil
 			}
 		}
 

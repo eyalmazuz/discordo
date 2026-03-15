@@ -19,21 +19,21 @@ import (
 	clipkg "github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
-	"github.com/diamondburned/arikawa/v3/api"
-	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/diamondburned/arikawa/v3/state"
-	"github.com/diamondburned/ningen/v3/states/relationship"
-	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/ayn2op/discordo/pkg/picker"
 	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/layers"
+	"github.com/diamondburned/arikawa/v3/api"
+	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/state"
+	"github.com/diamondburned/arikawa/v3/utils/ws"
+	"github.com/diamondburned/ningen/v3/states/relationship"
 	"github.com/gdamore/tcell/v3"
 )
 
 type lockingTTYScreen struct {
 	completeMockScreen
 	lockCalls int
-	tty tcell.Tty
+	tty       tcell.Tty
 }
 
 func (s *lockingTTYScreen) LockRegion(x, y, width, height int, lock bool) {
@@ -82,15 +82,15 @@ func TestMessagesList_Branches(t *testing.T) {
 	t.Run("writeMessage_Branches", func(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		baseStyle := tcell.StyleDefault
-		
+
 		// 1. Blocked user
 		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1}, false)
 		m.cfg.HideBlockedUsers = true
-		
+
 		// 2. GuildMemberJoin
 		msgJoin := discord.Message{Type: discord.GuildMemberJoinMessage, Author: discord.User{Username: "joiner"}}
 		ml.writeMessage(builder, msgJoin, baseStyle)
-		
+
 		// 3. ChannelPinned
 		msgPinned := discord.Message{Type: discord.ChannelPinnedMessage, Author: discord.User{Username: "pinner"}}
 		ml.writeMessage(builder, msgPinned, baseStyle)
@@ -99,7 +99,7 @@ func TestMessagesList_Branches(t *testing.T) {
 	t.Run("drawAuthor_Member", func(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		msg := discord.Message{
-			Author: discord.User{ID: 2, Username: "user2"},
+			Author:  discord.User{ID: 2, Username: "user2"},
 			GuildID: 10,
 		}
 		// Set member in cabinet
@@ -107,7 +107,7 @@ func TestMessagesList_Branches(t *testing.T) {
 			User: discord.User{ID: 2},
 			Nick: "nick2",
 		}, false)
-		
+
 		ml.drawAuthor(builder, msg, tcell.StyleDefault)
 	})
 
@@ -132,7 +132,7 @@ func TestMessagesList_Branches(t *testing.T) {
 func TestMessagesList_Navigation_Branches(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
-	
+
 	t.Run("selectUp_Prepend", func(t *testing.T) {
 		ml.messages = []discord.Message{{ID: 100}}
 		ml.SetCursor(0)
@@ -152,7 +152,7 @@ func TestMessagesList_Navigation_Branches(t *testing.T) {
 		}
 		ml.SetCursor(1)
 		ml.selectReply()
-		
+
 		// Not found
 		ml.messages[1].ReferencedMessage.ID = 99
 		ml.selectReply()
@@ -163,12 +163,12 @@ func TestMessagesList_Embeds_AllLines(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
 	builder := tview.NewLineBuilder()
-	
+
 	embed := discord.Embed{
-		Title: "Title",
-		URL: "https://url.com",
-		Provider: &discord.EmbedProvider{Name: "Provider"},
-		Author: &discord.EmbedAuthor{Name: "Author"},
+		Title:       "Title",
+		URL:         "https://url.com",
+		Provider:    &discord.EmbedProvider{Name: "Provider"},
+		Author:      &discord.EmbedAuthor{Name: "Author"},
 		Description: "Description with \\*escape\\*",
 		Fields: []discord.EmbedField{
 			{Name: "F1", Value: "V1"},
@@ -176,9 +176,9 @@ func TestMessagesList_Embeds_AllLines(t *testing.T) {
 			{Value: "V3"},
 		},
 		Footer: &discord.EmbedFooter{Text: "Footer"},
-		Color: 0xFF0000,
+		Color:  0xFF0000,
 	}
-	
+
 	msg := discord.Message{Embeds: []discord.Embed{embed}}
 	ml.drawEmbeds(builder, msg, tcell.StyleDefault)
 }
@@ -186,11 +186,11 @@ func TestMessagesList_Embeds_AllLines(t *testing.T) {
 func TestMessagesList_Yank_And_Help(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
-	ml.messages = []discord.Message{{ID: 1, Content: "content", Author: discord.User{Username: "user"}}}
+	ml.setMessages([]discord.Message{{ID: 1, ChannelID: 2, Content: "content", Author: discord.User{Username: "user"}}})
 	ml.SetCursor(0)
 
 	t.Run("yankID", func(t *testing.T) {
-		ml.yankID()
+		executeCommand(requireCommand(t, ml.yankMessageID()))
 	})
 	t.Run("yankContent", func(t *testing.T) {
 		ml.yankContent()
@@ -198,7 +198,7 @@ func TestMessagesList_Yank_And_Help(t *testing.T) {
 	t.Run("yankURL", func(t *testing.T) {
 		ml.yankURL()
 	})
-	
+
 	t.Run("Help", func(t *testing.T) {
 		ml.ShortHelp()
 		ml.FullHelp()
@@ -229,7 +229,7 @@ func TestMessagesList_Actions(t *testing.T) {
 func TestMessagesList_JumpAndMembers(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
-	
+
 	t.Run("jumpToMessage", func(t *testing.T) {
 		ml.messages = []discord.Message{{ID: 1}}
 		ch := discord.Channel{ID: 123}
@@ -248,7 +248,7 @@ func TestMessagesList_JumpAndMembers(t *testing.T) {
 func TestMessagesList_Draw_ExtraBranches(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
-	
+
 	t.Run("drawReplyMessage_NotFound", func(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		msg := discord.Message{ReferencedMessage: &discord.Message{ID: 99}}
@@ -323,21 +323,21 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 
 		ml.imageItemByKey = map[string]*imageItem{
 			"img": {
-				useKitty:        true,
-				kittyPlaced:     true,
-				kittyUploaded:   true,
-				pendingPlace:    true,
-				kittyCols:       2,
+				useKitty:         true,
+				kittyPlaced:      true,
+				kittyUploaded:    true,
+				pendingPlace:     true,
+				kittyCols:        2,
 				kittyVisibleRows: 1,
 			},
 		}
 		ml.emoteItemByKey = map[string]*imageItem{
 			"emote": {
-				useKitty:        true,
-				kittyPlaced:     true,
-				kittyUploaded:   true,
-				pendingPlace:    true,
-				kittyCols:       2,
+				useKitty:         true,
+				kittyPlaced:      true,
+				kittyUploaded:    true,
+				pendingPlace:     true,
+				kittyCols:        2,
 				kittyVisibleRows: 1,
 			},
 		}
@@ -521,9 +521,7 @@ func TestMessagesListOpenVariantsAndMouseURL(t *testing.T) {
 			Action:     tview.MouseLeftClick,
 		}
 
-		if _, ok := ml.HandleEvent(event).(tview.RedrawCommand); !ok {
-			t.Fatal("expected mouse click on URL to request redraw")
-		}
+		ml.HandleEvent(event)
 
 		select {
 		case got := <-opened:
@@ -550,9 +548,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml := m.messagesList
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected cancel key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
 		if ml.Cursor() != -1 {
 			t.Fatalf("expected cursor to be cleared, got %d", ml.Cursor())
 		}
@@ -564,23 +560,17 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		copied := stubClipboardWrite(t)
 		ml.SetCursor(0)
-		if cmd := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone)); cmd != nil {
-			t.Fatalf("expected yank id key to return nil, got %T", cmd)
-		}
+		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got != "10" {
 			t.Fatalf("expected copied id %q, got %q", "10", got)
 		}
 
-		if cmd := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone)); cmd != nil {
-			t.Fatalf("expected yank content key to return nil, got %T", cmd)
-		}
+		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got != "body" {
 			t.Fatalf("expected copied content %q, got %q", "body", got)
 		}
 
-		if cmd := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "u", tcell.ModNone)); cmd != nil {
-			t.Fatalf("expected yank url key to return nil, got %T", cmd)
-		}
+		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "u", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got == "" || !strings.Contains(got, "/channels/") {
 			t.Fatalf("expected copied message URL, got %q", got)
 		}
@@ -592,9 +582,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "R", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected reply key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "R", tcell.ModNone))
 		if ml.chatView.messageInput.sendMessageData.Reference == nil || ml.chatView.messageInput.sendMessageData.Reference.MessageID != 10 {
 			t.Fatal("expected reply to set message reference")
 		}
@@ -610,9 +598,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 			ml.SetCursor(0)
-			if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone)).(tview.RedrawCommand); !ok {
-				t.Fatal("expected edit key to redraw")
-			}
+			ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
 			if ml.chatView.messageInput.edit {
 				t.Fatal("expected foreign message not to enter edit mode")
 			}
@@ -624,9 +610,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 			ml.SetCursor(0)
-			if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone)).(tview.RedrawCommand); !ok {
-				t.Fatal("expected edit key to redraw")
-			}
+			ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
 			if !ml.chatView.messageInput.edit {
 				t.Fatal("expected own message to enter edit mode")
 			}
@@ -640,9 +624,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 		ml.SetCursor(1)
 		ml.SetCursor(0)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected delete confirm key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
 		if !m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected confirm modal layer to be visible")
 		}
@@ -841,9 +823,7 @@ func TestMessagesListConfirmDeleteFlow(t *testing.T) {
 		t.Fatal("expected confirm modal to be visible")
 	}
 
-	if _, ok := m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "Yes"}).(tview.RedrawCommand); !ok {
-		t.Fatal("expected confirm modal completion to redraw")
-	}
+	m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "Yes"})
 	if !strings.Contains(transport.path, "/messages/88") {
 		t.Fatalf("expected confirm delete to hit delete endpoint, got %q", transport.path)
 	}
@@ -875,31 +855,23 @@ func TestMessagesListHandleEventMoreKeybinds(t *testing.T) {
 			tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone),
 		}
 		for _, key := range keys {
-			if _, ok := ml.HandleEvent(key).(tview.RedrawCommand); !ok {
-				t.Fatalf("expected key %v to request redraw", key)
-			}
+			ml.HandleEvent(key)
 		}
 	})
 
 	t.Run("enter key opens selection", func(t *testing.T) {
 		ml.SetCursor(0)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected enter key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 	})
 
 	t.Run("reply mention key redraws", func(t *testing.T) {
 		ml.SetCursor(0)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected reply mention key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
 	})
 
 	t.Run("force delete key redraws", func(t *testing.T) {
 		ml.SetCursor(1)
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected force delete key to redraw")
-		}
+		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone))))
 	})
 
 	t.Run("non click mouse falls through", func(t *testing.T) {
@@ -1219,12 +1191,8 @@ func TestMessagesListAdditionalCoverageBranches(t *testing.T) {
 		}
 
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 20, Author: discord.User{ID: 2, Username: "other"}}})
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected scroll up key to redraw")
-		}
-		if _, ok := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "J", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected scroll down key to redraw")
-		}
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone))
+		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "J", tcell.ModNone))
 	})
 
 	t.Run("reply selection and help gating branches", func(t *testing.T) {
@@ -2282,8 +2250,12 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		}
 
 		ml.clearSelection()
-		ml.yankID()
-		ml.yankURL()
+		if cmd := ml.yankMessageID(); cmd != nil {
+			t.Fatalf("expected missing selection to return no yank-message-id command, got %T", cmd)
+		}
+		if cmd := ml.yankURL(); cmd != nil {
+			t.Fatalf("expected missing selection to return no yank-url command, got %T", cmd)
+		}
 	})
 
 	t.Run("yank helpers cover clipboard failure path", func(t *testing.T) {
@@ -2300,8 +2272,8 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		}
 		t.Cleanup(func() { clipboardWrite = oldClipboardWrite })
 
-		ml.yankID()
-		ml.yankURL()
+		executeCommand(requireCommand(t, ml.yankMessageID()))
+		executeCommand(requireCommand(t, ml.yankURL()))
 
 		for i := 0; i < 2; i++ {
 			select {
@@ -2499,27 +2471,27 @@ func TestMessagesListLoadingAndCursorBranches(t *testing.T) {
 		})
 	})
 
-		t.Run("cursor mapping and selection helpers", func(t *testing.T) {
-			m := newTestModelWithTransport(&mockTransport{})
-			ml := m.messagesList
-			ml.messages = []discord.Message{{ID: 1}, {ID: 2}}
-			ml.rows = []messagesListRow{
-				{kind: messagesListRowSeparator},
-				{kind: messagesListRowMessage, messageIndex: 0},
-				{kind: messagesListRowMessage, messageIndex: 1},
-			}
-			ml.rowsDirty = false
+	t.Run("cursor mapping and selection helpers", func(t *testing.T) {
+		m := newTestModelWithTransport(&mockTransport{})
+		ml := m.messagesList
+		ml.messages = []discord.Message{{ID: 1}, {ID: 2}}
+		ml.rows = []messagesListRow{
+			{kind: messagesListRowSeparator},
+			{kind: messagesListRowMessage, messageIndex: 0},
+			{kind: messagesListRowMessage, messageIndex: 1},
+		}
+		ml.rowsDirty = false
 
-			if got := ml.messageToRowIndex(-1); got != -1 {
-				t.Fatalf("expected invalid message index to map to -1, got %d", got)
-			}
-			ml.List.SetCursor(-1)
-			if got := ml.Cursor(); got != -1 {
-				t.Fatalf("expected cleared cursor to be ignored, got %d", got)
-			}
+		if got := ml.messageToRowIndex(-1); got != -1 {
+			t.Fatalf("expected invalid message index to map to -1, got %d", got)
+		}
+		ml.List.SetCursor(-1)
+		if got := ml.Cursor(); got != -1 {
+			t.Fatalf("expected cleared cursor to be ignored, got %d", got)
+		}
 
-			target := ml.messageToRowIndex(1)
-			ml.onRowCursorChanged(0)
+		target := ml.messageToRowIndex(1)
+		ml.onRowCursorChanged(0)
 		if got := ml.List.Cursor(); got != target && got != ml.messageToRowIndex(0) {
 			t.Fatalf("expected separator cursor change to snap to a message row, got %d", got)
 		}

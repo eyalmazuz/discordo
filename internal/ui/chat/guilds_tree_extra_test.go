@@ -185,7 +185,7 @@ func TestGuildsTreeLoadChildren_ErrorBranches(t *testing.T) {
 		// Create a model with a transport that returns 401 for private channels
 		transport := &mockTransport{}
 		mErr := newTestModelWithTokenAndTransport("error-token", transport)
-		
+
 		gtErr := newGuildsTree(mErr.cfg, mErr)
 		if gtErr.loadChildren(tview.NewTreeNode("dm").SetReference(dmNode{})) {
 			t.Fatal("expected missing private channels to fail loading children")
@@ -232,7 +232,7 @@ func TestGuildsTreeYankIDBranches(t *testing.T) {
 	guild := tview.NewTreeNode("guild").SetReference(discord.GuildID(42))
 	gt.GetRoot().AddChild(guild)
 	gt.SetCurrentNode(guild)
-	gt.yankID()
+	executeCommand(requireCommand(t, gt.yankID()))
 	if got := waitForCopiedText(t, copied); got != "42" {
 		t.Fatalf("expected guild yank to copy %q, got %q", "42", got)
 	}
@@ -252,7 +252,7 @@ func TestGuildsTreeYankIDClipboardFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { clipboardWrite = oldClipboardWrite })
 
-	gt.yankID()
+	executeCommand(requireCommand(t, gt.yankID()))
 	select {
 	case <-called:
 	case <-time.After(300 * time.Millisecond):
@@ -400,16 +400,17 @@ func TestGuildsTreeAdditionalBranchCoverage(t *testing.T) {
 		gt.SetRect(0, 0, 80, 24)
 		gt.Draw(&completeMockScreen{})
 
-		if _, ok := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "-", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected collapse-parent key to redraw")
-		}
+		gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "-", tcell.ModNone))
 		if gt.GetCurrentNode() != parent || parent.IsExpanded() {
 			t.Fatal("expected collapse-parent key to collapse and select parent")
 		}
 
 		gt.SetCurrentNode(child)
-		if cmd := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)); cmd == nil {
-			t.Fatal("expected move-to-parent key to forward a navigation command")
+		if cmd := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)); cmd != nil {
+			t.Fatalf("expected move-to-parent key to update selection directly, got %T", cmd)
+		}
+		if gt.GetCurrentNode() != parent {
+			t.Fatal("expected move-to-parent key to move the current node to the parent")
 		}
 		if cmd := gt.HandleEvent(tcell.NewEventMouse(0, 0, tcell.ButtonNone, 0)); cmd != nil {
 			t.Fatalf("expected unmatched non-key event to fall through without command, got %T", cmd)

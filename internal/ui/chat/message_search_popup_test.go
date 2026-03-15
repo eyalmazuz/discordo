@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/tview"
 	"github.com/ayn2op/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/gdamore/tcell/v3"
@@ -16,10 +15,7 @@ func TestModel_HandleEvent_SearchKeyOpensPopup(t *testing.T) {
 	channel := &discord.Channel{ID: 200, GuildID: 100, Type: discord.GuildText, Name: "general"}
 	m.SetSelectedChannel(channel)
 
-	cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Fatalf("expected RedrawCommand for search key, got %T", cmd)
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
 
 	if !m.HasLayer(messageSearchLayerName) {
 		t.Fatal("expected message search layer to be visible")

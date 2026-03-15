@@ -125,11 +125,7 @@ func TestMessagesList_HandleEvent_EnterKey(t *testing.T) {
 
 	event := tcell.NewEventKey(tcell.KeyEnter, " ", tcell.ModNone)
 
-	// HandleEvent should return RedrawCommand for Enter key
-	cmd := ml.HandleEvent(event)
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Errorf("expected RedrawCommand for Enter key")
-	}
+	ml.HandleEvent(event)
 }
 
 func TestMessagesList_HandleEvent_ReactKeyOpensPicker(t *testing.T) {
@@ -148,10 +144,7 @@ func TestMessagesList_HandleEvent_ReactKeyOpensPicker(t *testing.T) {
 	})
 	m.messagesList.SetCursor(0)
 
-	cmd := m.messagesList.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "+", tcell.ModNone))
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Fatalf("expected RedrawCommand for react key, got %T", cmd)
-	}
+	m.messagesList.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "+", tcell.ModNone))
 
 	if !m.HasLayer(reactionPickerLayerName) {
 		t.Fatal("expected reaction picker layer to be visible")

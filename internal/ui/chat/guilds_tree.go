@@ -55,7 +55,6 @@ func newGuildsTree(cfg *config.Config, chatView *Model) *guildsTree {
 		}).
 		SetGraphics(cfg.Theme.GuildsTree.Graphics).
 		SetGraphicsColor(tcell.GetColor(cfg.Theme.GuildsTree.GraphicsColor)).
-		SetSelectedFunc(gt.onSelected).
 		SetTitle("Guilds")
 
 	return gt
@@ -436,14 +435,16 @@ func (gt *guildsTree) collapseParentNode(node *tview.TreeNode) {
 
 func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
+	case *tview.TreeViewSelectedEvent:
+		gt.onSelected(event.Node)
+		return nil
 	case *tview.KeyEvent:
-		redraw := tview.RedrawCommand{}
 		handler := gt.TreeView.HandleEvent
 
 		switch {
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.CollapseParentNode.Keybind):
 			gt.collapseParentNode(gt.GetCurrentNode())
-			return redraw
+			return nil
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.MoveToParentNode.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone))
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.Up.Keybind):
@@ -452,24 +453,23 @@ func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Command {
 			return handler(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.Top.Keybind):
 			gt.Move(gt.GetRowCount() * -1)
-			return redraw
+			return nil
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.Bottom.Keybind):
 			gt.Move(gt.GetRowCount())
-			return redraw
+			return nil
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.SelectCurrent.Keybind):
 			if node := gt.GetCurrentNode(); node != nil {
 				gt.onSelected(node)
 			}
-			return redraw
+			return nil
 		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.ToggleExpand.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == " "):
 			if node := gt.GetCurrentNode(); node != nil {
 				gt.loadChildren(node)
 				node.SetExpanded(!node.IsExpanded())
 			}
-			return redraw
-		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
-			gt.yankID()
 			return nil
+		case keybind.Matches(event, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
+			return gt.yankID()
 		}
 		// Do not fall through to TreeView defaults for unmatched keys.
 		return nil
@@ -477,21 +477,23 @@ func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Command {
 	return gt.TreeView.HandleEvent(event)
 }
 
-func (gt *guildsTree) yankID() {
+func (gt *guildsTree) yankID() tview.Command {
 	node := gt.GetCurrentNode()
 	if node == nil {
-		return
+		return nil
 	}
 
 	// Reference of a tree node in the guilds tree is its ID.
 	// discord.Snowflake (discord.GuildID and discord.ChannelID) have the String method.
 	if id, ok := node.GetReference().(fmt.Stringer); ok {
-		go func() {
+		return func() tcell.Event {
 			if err := clipboardWrite(clipboard.FmtText, []byte(id.String())); err != nil {
 				slog.Error("failed to copy node id", "err", err)
 			}
-		}()
+			return nil
+		}
 	}
+	return nil
 }
 
 func (gt *guildsTree) findNodeByReference(reference any) *tview.TreeNode {

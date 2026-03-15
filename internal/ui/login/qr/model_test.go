@@ -107,8 +107,8 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 
 	t.Run("nonceProofEvent", func(t *testing.T) {
 		cmd := m.HandleEvent(&nonceProofEvent{encryptedNonce: "payload"})
-		if _, ok := cmd.(tview.BatchCommand); !ok {
-			t.Fatalf("expected nonce proof event to return BatchCommand, got %T", cmd)
+		if cmd == nil {
+			t.Fatal("expected nonce proof event to return a command")
 		}
 	})
 

@@ -99,20 +99,16 @@ func (d *messageConfirmDialog) HasFocus() bool {
 func (d *messageConfirmDialog) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
 	case *tview.FormSubmitEvent:
-		return tview.EventCommand(func() tcell.Event {
-			done := &tview.ModalDoneEvent{
+		return func() tcell.Event {
+			return &tview.ModalDoneEvent{
 				ButtonIndex: event.ButtonIndex,
 				ButtonLabel: event.ButtonLabel,
 			}
-			done.SetEventNow()
-			return done
-		})
+		}
 	case *tview.FormCancelEvent:
-		return tview.EventCommand(func() tcell.Event {
-			done := &tview.ModalDoneEvent{ButtonIndex: -1, ButtonLabel: ""}
-			done.SetEventNow()
-			return done
-		})
+		return func() tcell.Event {
+			return &tview.ModalDoneEvent{ButtonIndex: -1, ButtonLabel: ""}
+		}
 	}
 	return d.form.HandleEvent(event)
 }

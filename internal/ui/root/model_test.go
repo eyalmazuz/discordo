@@ -11,8 +11,8 @@ import (
 	loginpkg "github.com/ayn2op/discordo/internal/ui/login"
 	qrpkg "github.com/ayn2op/discordo/internal/ui/login/qr"
 	tokenpkg "github.com/ayn2op/discordo/internal/ui/login/token"
-	"github.com/ayn2op/tview/keybind"
 	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/keybind"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -28,6 +28,14 @@ type stubRootInnerKeyMap struct {
 	*stubRootInner
 	short []keybind.Keybind
 	full  [][]keybind.Keybind
+}
+
+func runCommand(t *testing.T, cmd tview.Command) tcell.Event {
+	t.Helper()
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
 }
 
 func (s *stubRootInner) HandleEvent(event tcell.Event) tview.Command {
@@ -79,22 +87,18 @@ func TestRootEventCommands(t *testing.T) {
 		initClipboardFn = oldInitClipboardFn
 	})
 
-	tokenEventCmd, ok := tokenCommand("abc").(tview.EventCommand)
-	if !ok {
-		t.Fatalf("expected tokenCommand to return EventCommand, got %T", tokenCommand("abc"))
-	}
-	if event, ok := tokenEventCmd().(*tokenEvent); !ok || event.token != "abc" {
+	if event, ok := runCommand(t, tokenCommand("abc")).(*tokenEvent); !ok || event.token != "abc" {
 		t.Fatalf("expected token event with token %q, got %#v", "abc", event)
 	}
 
 	getStoredToken = func() (string, error) { return "stored-token", nil }
-	getTokenCmd := getToken().(tview.EventCommand)
-	if event, ok := getTokenCmd().(*tokenEvent); !ok || event.token != "stored-token" {
+	getTokenCmd := getToken()
+	if event, ok := runCommand(t, getTokenCmd).(*tokenEvent); !ok || event.token != "stored-token" {
 		t.Fatalf("expected stored token event, got %#v", event)
 	}
 
 	getStoredToken = func() (string, error) { return "", errors.New("missing") }
-	if _, ok := getTokenCmd().(*loginEvent); !ok {
+	if _, ok := runCommand(t, getTokenCmd).(*loginEvent); !ok {
 		t.Fatal("expected missing keyring token to fall back to login event")
 	}
 
@@ -103,14 +107,14 @@ func TestRootEventCommands(t *testing.T) {
 		storedToken = token
 		return nil
 	}
-	if event := setToken("persist").(tview.EventCommand)(); event != nil {
+	if event := runCommand(t, setToken("persist")); event != nil {
 		t.Fatalf("expected successful setToken to return nil event, got %T", event)
 	}
 	if storedToken != "persist" {
 		t.Fatalf("expected setToken to store %q, got %q", "persist", storedToken)
 	}
 	setStoredToken = func(string) error { return errors.New("set fail") }
-	if event := setToken("persist").(tview.EventCommand)(); event == nil {
+	if event := runCommand(t, setToken("persist")); event == nil {
 		t.Fatal("expected failed setToken to return an error event")
 	}
 
@@ -119,23 +123,23 @@ func TestRootEventCommands(t *testing.T) {
 		deleted = true
 		return nil
 	}
-	if event := deleteToken().(tview.EventCommand)(); event != nil {
+	if event := runCommand(t, deleteToken()); event != nil {
 		t.Fatalf("expected successful deleteToken to return nil event, got %T", event)
 	}
 	if !deleted {
 		t.Fatal("expected deleteToken to call the delete seam")
 	}
 	deleteStoredToken = func() error { return errors.New("delete fail") }
-	if event := deleteToken().(tview.EventCommand)(); event == nil {
+	if event := runCommand(t, deleteToken()); event == nil {
 		t.Fatal("expected failed deleteToken to return an error event")
 	}
 
 	initClipboardFn = func() error { return nil }
-	if event := initClipboard().(tview.EventCommand)(); event != nil {
+	if event := runCommand(t, initClipboard()); event != nil {
 		t.Fatalf("expected successful initClipboard to return nil event, got %T", event)
 	}
 	initClipboardFn = func() error { return errors.New("clipboard fail") }
-	if event := initClipboard().(tview.EventCommand)(); event == nil {
+	if event := runCommand(t, initClipboard()); event == nil {
 		t.Fatal("expected failed initClipboard to return an error event")
 	}
 }
@@ -164,65 +168,45 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 	getStoredToken = func() (string, error) { return "from-keyring", nil }
 	os.Unsetenv(tokenEnvVarKey)
 	cmd := m.HandleEvent(tview.NewInitEvent())
-	batch, ok := cmd.(tview.BatchCommand)
-	if !ok {
-		t.Fatalf("expected init event to return a BatchCommand, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected init event to return a command")
 	}
-	foundTokenEvent := false
-	for _, c := range batch {
-		if evCmd, ok := c.(tview.EventCommand); ok {
-			if ev, ok := evCmd().(*tokenEvent); ok && ev.token == "from-keyring" {
-				foundTokenEvent = true
-				break
-			}
-		}
-	}
-	if !foundTokenEvent {
-		t.Fatalf("expected init batch to contain token event with %q, got %#v", "from-keyring", batch)
+	if event := runCommand(t, cmd); event == nil {
+		t.Fatal("expected init event command to emit an event")
 	}
 
 	os.Setenv(tokenEnvVarKey, "from-env")
 	cmd = m.HandleEvent(tview.NewInitEvent())
-	batch, ok = cmd.(tview.BatchCommand)
-	if !ok {
-		t.Fatalf("expected init event with env token to return a BatchCommand, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected init event with env token to return a command")
 	}
-	foundTokenEvent = false
-	for _, c := range batch {
-		if evCmd, ok := c.(tview.EventCommand); ok {
-			if ev, ok := evCmd().(*tokenEvent); ok && ev.token == "from-env" {
-				foundTokenEvent = true
-				break
-			}
-		}
-	}
-	if !foundTokenEvent {
-		t.Fatalf("expected init batch to contain env token event with %q, got %#v", "from-env", batch)
+	if event := runCommand(t, cmd); event == nil {
+		t.Fatal("expected init event with env token to emit an event")
 	}
 
-	if _, ok := m.HandleEvent(newLoginEvent()).(tview.BatchCommand); !ok {
+	if cmd := m.HandleEvent(newLoginEvent()); cmd == nil {
 		t.Fatal("expected login event to show the login view")
 	}
 	if _, ok := m.inner.(*loginpkg.Model); !ok {
 		t.Fatalf("expected login event to install a login model, got %T", m.inner)
 	}
 
-	if _, ok := m.HandleEvent(newTokenEvent("chat-token")).(tview.BatchCommand); !ok {
+	if cmd := m.HandleEvent(newTokenEvent("chat-token")); cmd == nil {
 		t.Fatal("expected token event to show the chat view")
 	}
 
-	if _, ok := m.HandleEvent(&tokenpkg.TokenEvent{Token: "token-tab"}).(tview.BatchCommand); !ok {
+	if cmd := m.HandleEvent(&tokenpkg.TokenEvent{Token: "token-tab"}); cmd == nil {
 		t.Fatal("expected token tab event to return a batch command")
 	}
-	if _, ok := m.HandleEvent(&qrpkg.TokenEvent{Token: "qr-tab"}).(tview.BatchCommand); !ok {
+	if cmd := m.HandleEvent(&qrpkg.TokenEvent{Token: "qr-tab"}); cmd == nil {
 		t.Fatal("expected QR tab event to return a batch command")
 	}
-	if _, ok := m.HandleEvent(&chatpkg.LogoutEvent{}).(tview.BatchCommand); !ok {
+	if cmd := m.HandleEvent(&chatpkg.LogoutEvent{}); cmd == nil {
 		t.Fatal("expected logout event to return a batch command")
 	}
 
-	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, ".", tcell.ModCtrl)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected toggle-help key to request a redraw")
+	if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, ".", tcell.ModCtrl)); cmd != nil {
+		t.Fatalf("expected toggle-help key to return nil, got %T", cmd)
 	}
 	if !m.help.ShowAll() {
 		t.Fatal("expected toggle-help key to enable full help")
@@ -245,21 +229,22 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 		t.Fatal("expected suspend key to hit the suspend path")
 	}
 
-	inner := &stubRootInner{Box: tview.NewBox(), cmd: tview.RedrawCommand{}}
+	inner := &stubRootInner{Box: tview.NewBox(), cmd: func() tcell.Event { return tcell.NewEventInterrupt(nil) }}
 	m.inner = inner
-	if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)).(tview.RedrawCommand); !ok {
-		t.Fatal("expected unmatched keys to be forwarded to the inner primitive")
+	cmd = m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone))
+	if _, ok := runCommand(t, cmd).(*tcell.EventInterrupt); !ok {
+		t.Fatalf("expected unmatched keys to forward the inner command, got %T", cmd)
 	}
 	if inner.handled != 1 {
 		t.Fatalf("expected forwarded key to hit inner primitive once, got %d", inner.handled)
 	}
 
-	quitBatch, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl)).(tview.BatchCommand)
-	if !ok {
-		t.Fatalf("expected quit key to return a batch command, got %T", quitBatch)
+	quitCmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl))
+	if quitCmd == nil {
+		t.Fatal("expected quit key to return a command")
 	}
-	if len(quitBatch) != 2 {
-		t.Fatalf("expected quit batch to contain inner and quit commands, got %d entries", len(quitBatch))
+	if event := runCommand(t, quitCmd); event == nil {
+		t.Fatal("expected quit command to emit an event")
 	}
 	if inner.handled != 2 {
 		t.Fatalf("expected quit to forward a quit event to the inner primitive, got %d total calls", inner.handled)
@@ -304,8 +289,8 @@ func TestRootModelHandleEventAndHelpers(t *testing.T) {
 	if cmd := nilInner.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
 		t.Fatalf("expected unmatched key without inner primitive to return nil, got %T", cmd)
 	}
-	if batch, ok := nilInner.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl)).(tview.BatchCommand); !ok || len(batch) != 2 {
-		t.Fatalf("expected quit without inner primitive to return a 2-entry batch command, got %#v", batch)
+	if cmd := nilInner.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlC, "", tcell.ModCtrl)); cmd == nil {
+		t.Fatal("expected quit without inner primitive to return a command")
 	}
 }
 

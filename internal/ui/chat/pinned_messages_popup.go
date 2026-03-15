@@ -108,56 +108,55 @@ func (pp *pinnedMessagesPopup) FullHelp() [][]keybind.Keybind {
 func (pp *pinnedMessagesPopup) HandleEvent(event tcell.Event) tview.Command {
 	switch event := event.(type) {
 	case *tview.KeyEvent:
-		redraw := tview.RedrawCommand{}
 		keys := pp.cfg.Keybinds.Picker
 
 		switch {
 		case keybind.Matches(event, keys.Up.Keybind):
 			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Down.Keybind):
 			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Top.Keybind):
 			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Bottom.Keybind):
 			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Select.Keybind):
 			pp.selectCurrent()
-			return redraw
+			return nil
 		case keybind.Matches(event, keys.Cancel.Keybind):
 			pp.close(pp.previousFocus)
-			return redraw
+			return nil
 		}
 
 		if event.Key() == tcell.KeyRune {
 			switch event.Str() {
 			case "j":
 				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "k":
 				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "g":
 				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "G":
 				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
-				return redraw
+				return nil
 			case "d":
 				pp.confirmUnpin()
-				return redraw
+				return nil
 			case "D":
 				pp.unpinCurrent()
-				return redraw
+				return nil
 			}
 		}
 
 		if event.Key() == tcell.KeyEnter {
 			pp.selectCurrent()
-			return redraw
+			return nil
 		}
 	}
 

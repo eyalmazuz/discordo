@@ -32,10 +32,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyOpensPopup(t *testing.T) {
 	m := newTestModelWithTransport(transport)
 	m.SetSelectedChannel(channel)
 
-	cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Fatalf("expected redraw command for pinned messages key, got %T", cmd)
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if !m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected pinned messages popup layer to be visible")
 	}
@@ -62,10 +59,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleMentionsList(t *testin
 	m.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
 	m.messageInput.mentionsList.SetCursor(1)
 
-	cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Fatalf("expected ctrl+p with visible mentions list to redraw, got %T", cmd)
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected ctrl+p not to open pinned messages while mentions list is visible")
 	}
@@ -92,10 +86,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleEmojiAutocomplete(t *t
 	}
 	m.messageInput.mentionsList.SetCursor(1)
 
-	cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-	if _, ok := cmd.(tview.RedrawCommand); !ok {
-		t.Fatalf("expected ctrl+p with visible emoji autocomplete to redraw, got %T", cmd)
-	}
+	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected ctrl+p not to open pinned messages while emoji autocomplete is visible")
 	}
@@ -164,10 +155,7 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 		m.SetSelectedChannel(channel)
 
 		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-		cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
-		if _, ok := cmd.(tview.RedrawCommand); !ok {
-			t.Fatalf("expected redraw command for delete-confirm pin key, got %T", cmd)
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
 		if !m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected unpin confirmation dialog to be visible")
 		}
@@ -248,10 +236,7 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 		m.SetSelectedChannel(channel)
 
 		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-		cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone))
-		if _, ok := cmd.(tview.RedrawCommand); !ok {
-			t.Fatalf("expected redraw command for force-unpin key, got %T", cmd)
-		}
+		executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone)))
 		if m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected force-unpin to skip the confirmation dialog")
 		}

@@ -9,16 +9,16 @@ import (
 	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/layers"
+	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/session"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"
-	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/diamondburned/ningen/v3/states/read"
-	"github.com/ayn2op/tview"
 	"github.com/gdamore/tcell/v3"
-	"github.com/ayn2op/tview/layers"
 )
 
 func getAfterDrawFunc(app *tview.Application) func(tcell.Screen) {
@@ -67,13 +67,13 @@ func TestModel_Branches(t *testing.T) {
 		if m.app.GetFocus() != m.messagesList {
 			t.Errorf("Expected messagesList, got %T", m.app.GetFocus())
 		}
-		
+
 		m.app.SetFocus(m.messageInput)
 		m.focusPrevious()
 		if m.app.GetFocus() != m.messagesList {
 			t.Errorf("Expected messagesList, got %T", m.app.GetFocus())
 		}
-		
+
 		m.app.SetFocus(m.messageInput)
 		m.focusNext()
 		if m.app.GetFocus() != m.guildsTree {
@@ -91,7 +91,7 @@ func TestModel_Branches(t *testing.T) {
 	t.Run("onReadUpdate_Branches", func(t *testing.T) {
 		m.guildsTree.guildNodeByID[1] = tview.NewTreeNode("G")
 		m.guildsTree.channelNodeByID[2] = tview.NewTreeNode("C")
-		
+
 		ev := &read.UpdateEvent{
 			ReadState: gateway.ReadState{ChannelID: 2},
 			GuildID:   1,
@@ -101,64 +101,39 @@ func TestModel_Branches(t *testing.T) {
 	})
 }
 
-func TestModel_ConsumeLayerCommands(t *testing.T) {
+func TestModelHandleEventCloseLayerEvent(t *testing.T) {
 	m := newTestModel()
-
-	t.Run("OpenLayer", func(t *testing.T) {
-		m.AddLayer(tview.NewBox(), layers.WithName("test"), layers.WithVisible(false))
-		m.consumeLayerCommands(layers.OpenLayerCommand{Name: "test"})
-		if !m.GetVisible("test") {
-			t.Errorf("Layer should be visible")
-		}
-	})
-
-	t.Run("CloseLayer", func(t *testing.T) {
-		m.AddLayer(tview.NewBox(), layers.WithName("test2"), layers.WithVisible(true))
-		m.consumeLayerCommands(layers.CloseLayerCommand{Name: "test2"})
-		if m.GetVisible("test2") {
-			t.Errorf("Layer should be hidden")
-		}
-	})
-
-	t.Run("ToggleLayer", func(t *testing.T) {
-		m.AddLayer(tview.NewBox(), layers.WithName("test3"), layers.WithVisible(false))
-		m.consumeLayerCommands(layers.ToggleLayerCommand{Name: "test3"})
-		if !m.GetVisible("test3") {
-			t.Errorf("Layer should be visible after toggle")
-		}
-		m.consumeLayerCommands(layers.ToggleLayerCommand{Name: "test3"})
-		if m.GetVisible("test3") {
-			t.Errorf("Layer should be hidden after second toggle")
-		}
-	})
-	
-	t.Run("BatchCommand", func(t *testing.T) {
-		m.consumeLayerCommands(tview.BatchCommand{layers.OpenLayerCommand{Name: "test"}, layers.CloseLayerCommand{Name: "test2"}})
-	})
+	m.AddLayer(tview.NewBox(), layers.WithName("test"), layers.WithVisible(true))
+	if cmd := m.HandleEvent(&closeLayerEvent{name: "test"}); cmd != nil {
+		t.Fatalf("expected close layer event to return nil, got %T", cmd)
+	}
+	if m.GetVisible("test") {
+		t.Fatal("expected close layer event to hide the layer")
+	}
 }
 
 func TestModel_HandleEvent_ExtraKeys(t *testing.T) {
 	m := newTestModel()
-	
+
 	// Quit event
 	m.HandleEvent(&QuitEvent{})
-	
+
 	// ModalDone event
 	m.showConfirmModal("test", []string{"Yes"}, nil)
 	m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "Yes"})
-	
+
 	// Init event
 	m.HandleEvent(&tview.InitEvent{})
-	
+
 	// All main keybinds
 	keys := []tcell.Key{
 		tcell.KeyCtrlG,
 		tcell.KeyCtrlT,
 		tcell.KeyCtrlI,
-		tcell.KeyCtrlU, 
-		tcell.KeyCtrlO, 
-		tcell.KeyCtrlQ, 
-		tcell.KeyCtrlF, 
+		tcell.KeyCtrlU,
+		tcell.KeyCtrlO,
+		tcell.KeyCtrlQ,
+		tcell.KeyCtrlF,
 		tcell.KeyCtrlP,
 	}
 	for _, k := range keys {
@@ -170,12 +145,12 @@ func TestModel_Typers_Footer_AllBranches(t *testing.T) {
 	m := newTestModel()
 	cid := discord.ChannelID(123)
 	m.SetSelectedChannel(&discord.Channel{ID: cid})
-	
+
 	// 1 typer
 	m.SelectedChannel().DMRecipients = []discord.User{{ID: 2, Username: "user2"}}
 	m.addTyper(2)
 	time.Sleep(10 * time.Millisecond)
-	
+
 	// 2 typers
 	m.SelectedChannel().DMRecipients = append(m.SelectedChannel().DMRecipients, discord.User{ID: 3, Username: "user3"})
 	m.addTyper(3)
@@ -190,13 +165,13 @@ func TestModel_Typers_Footer_AllBranches(t *testing.T) {
 	m.SelectedChannel().DMRecipients = append(m.SelectedChannel().DMRecipients, discord.User{ID: 5, Username: "user5"})
 	m.addTyper(5)
 	time.Sleep(10 * time.Millisecond)
-	
+
 	// guild member case
 	m.SelectedChannel().GuildID = 10
 	m.state.Cabinet.MemberStore.MemberSet(10, &discord.Member{User: discord.User{ID: 6, Username: "member6"}}, false)
 	m.addTyper(6)
 	time.Sleep(10 * time.Millisecond)
-	
+
 	m.removeTyper(2)
 	m.clearTypers()
 }
@@ -253,9 +228,7 @@ func TestModelHandleEventConfirmModalAndLogout(t *testing.T) {
 			called = label
 		})
 
-		if _, ok := m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "No"}).(tview.RedrawCommand); !ok {
-			t.Fatal("expected modal completion to redraw")
-		}
+		m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "No"})
 		if called != "No" {
 			t.Fatalf("expected modal callback label %q, got %q", "No", called)
 		}
@@ -265,16 +238,14 @@ func TestModelHandleEventConfirmModalAndLogout(t *testing.T) {
 	})
 
 	t.Run("logout key returns batch command", func(t *testing.T) {
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlD, "", tcell.ModNone)).(tview.BatchCommand); !ok {
-			t.Fatal("expected logout key to return a batch command")
+		if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlD, "", tcell.ModNone)); cmd == nil {
+			t.Fatal("expected logout key to return a command")
 		}
 	})
 
 	t.Run("message search key opens popup", func(t *testing.T) {
 		m.RemoveLayer(messageSearchLayerName)
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected message search key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
 		if !m.HasLayer(messageSearchLayerName) {
 			t.Fatal("expected message search key to open popup")
 		}
@@ -394,11 +365,7 @@ func TestModelAdditionalBranchCoverage(t *testing.T) {
 		openNingenState = func(*ningen.State) error { return sentinel }
 
 		m := newTestModel()
-		cmd, ok := m.HandleEvent(&tview.InitEvent{}).(tview.EventCommand)
-		if !ok {
-			t.Fatalf("expected init event command, got %T", cmd)
-		}
-		event := cmd()
+		event := executeCommand(requireCommand(t, m.HandleEvent(&tview.InitEvent{})))
 		errEvent, ok := event.(*tcell.EventError)
 		if !ok {
 			t.Fatalf("expected EventError, got %T", event)
@@ -421,21 +388,8 @@ func TestModelAdditionalBranchCoverage(t *testing.T) {
 		openNingenState = func(*ningen.State) error { return nil }
 
 		m := newTestModel()
-		cmd := m.HandleEvent(&tview.InitEvent{}).(tview.EventCommand)
-		if event := cmd(); event != nil {
+		if event := executeCommand(requireCommand(t, m.HandleEvent(&tview.InitEvent{}))); event != nil {
 			t.Fatalf("expected successful init command to emit nil event, got %T", event)
-		}
-	})
-
-	t.Run("consumeLayerCommands keeps multiple non-layer commands", func(t *testing.T) {
-		m := newTestModel()
-		cmd := m.consumeLayerCommands(tview.BatchCommand{tview.RedrawCommand{}, tview.EventCommand(func() tcell.Event { return nil })})
-		batch, ok := cmd.(tview.BatchCommand)
-		if !ok {
-			t.Fatalf("expected BatchCommand, got %T", cmd)
-		}
-		if len(batch) != 2 {
-			t.Fatalf("expected both non-layer commands to remain, got %d", len(batch))
 		}
 	})
 
@@ -484,9 +438,8 @@ func TestModelAdditionalBranchCoverage(t *testing.T) {
 func TestModelHandleEventInitAndKeyRouting(t *testing.T) {
 	t.Run("init event returns event command", func(t *testing.T) {
 		m := newTestModel()
-		cmd := m.HandleEvent(&tview.InitEvent{})
-		if _, ok := cmd.(tview.EventCommand); !ok {
-			t.Fatalf("expected init event to return EventCommand, got %T", cmd)
+		if cmd := m.HandleEvent(&tview.InitEvent{}); cmd == nil {
+			t.Fatal("expected init event to return a command")
 		}
 	})
 
@@ -504,9 +457,7 @@ func TestModelHandleEventInitAndKeyRouting(t *testing.T) {
 		}
 
 		for _, key := range keys {
-			if _, ok := m.HandleEvent(key).(tview.RedrawCommand); !ok {
-				t.Fatalf("expected key %v to trigger redraw", key)
-			}
+			m.HandleEvent(key)
 		}
 	})
 
@@ -572,18 +523,14 @@ func TestModelHandleEventFocusAndOverlayKeys(t *testing.T) {
 		m.openPicker()
 		m.closePicker()
 		m.messageInput.showMentionList()
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlG, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected focus guilds tree key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlG, "", tcell.ModNone))
 		if m.app.GetFocus() != m.guildsTree {
 			t.Fatalf("expected guild tree focus, got %T", m.app.GetFocus())
 		}
 	})
 
 	t.Run("focus messages list key", func(t *testing.T) {
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlT, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected focus messages key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlT, "", tcell.ModNone))
 		if m.app.GetFocus() != m.messagesList {
 			t.Fatalf("expected messages list focus, got %T", m.app.GetFocus())
 		}
@@ -602,39 +549,27 @@ func TestModelHandleEventFocusAndOverlayKeys(t *testing.T) {
 
 	t.Run("focus previous and next keys", func(t *testing.T) {
 		m.app.SetFocus(m.messagesList)
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlH, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected focus previous key to redraw")
-		}
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlL, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected focus next key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlH, "", tcell.ModNone))
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlL, "", tcell.ModNone))
 	})
 
 	t.Run("toggle guilds tree key", func(t *testing.T) {
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlB, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected toggle guilds key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlB, "", tcell.ModNone))
 		if m.mainFlex.GetItemCount() != 1 {
 			t.Fatalf("expected guild tree hidden, item count=%d", m.mainFlex.GetItemCount())
 		}
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlB, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected toggle guilds key to redraw on reopen")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlB, "", tcell.ModNone))
 		if m.mainFlex.GetItemCount() != 2 {
 			t.Fatalf("expected guild tree shown, item count=%d", m.mainFlex.GetItemCount())
 		}
 	})
 
 	t.Run("toggle channels picker key", func(t *testing.T) {
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected toggle channels picker key to redraw")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone))
 		if !m.HasLayer(channelsPickerLayerName) {
 			t.Fatal("expected channels picker layer to open")
 		}
-		if _, ok := m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone)).(tview.RedrawCommand); !ok {
-			t.Fatal("expected toggle channels picker key to redraw on close")
-		}
+		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone))
 		if m.HasLayer(channelsPickerLayerName) {
 			t.Fatal("expected channels picker layer to close")
 		}
