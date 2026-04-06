@@ -872,17 +872,13 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankURL.Keybind):
 			return ml.yankURL()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Open.Keybind):
-			ml.open()
-			return nil
+			return ml.open()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
-			ml.reply(false)
-			return nil
+			return ml.reply(false)
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
-			ml.reply(true)
-			return nil
+			return ml.reply(true)
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Edit.Keybind):
-			ml.editSelectedMessage()
-			return nil
+			return ml.editSelectedMessage()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Delete.Keybind):
 			return ml.deleteSelectedMessage()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.DeleteConfirm.Keybind):
@@ -1066,17 +1062,17 @@ func (ml *messagesList) yankURL() tview.Cmd {
 	}
 }
 
-func (ml *messagesList) open() {
+func (ml *messagesList) open() tview.Cmd {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
 	urls := messageURLs(*msg)
 
 	if len(urls) == 0 && len(msg.Attachments) == 0 {
-		return
+		return nil
 	}
 
 	if len(urls)+len(msg.Attachments) == 1 {
@@ -1091,8 +1087,9 @@ func (ml *messagesList) open() {
 			}
 		}
 	} else {
-		ml.showAttachmentsList(urls, msg.Attachments)
+		return ml.showAttachmentsList(urls, msg.Attachments)
 	}
+	return nil
 }
 
 func extractURLs(content string) []string {
@@ -1154,7 +1151,7 @@ func messageURLs(msg discord.Message) []string {
 	return urls
 }
 
-func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord.Attachment) {
+func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord.Attachment) tview.Cmd {
 	var items []attachmentItem
 	for _, a := range attachments {
 		attachment := a
@@ -1188,7 +1185,7 @@ func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord
 			layers.WithOverlay(),
 		).
 		SendToFront(attachmentsPickerLayerName)
-	ml.chatView.app.SetFocus(ml.attachmentsPicker)
+	return tview.SetFocus(ml.attachmentsPicker)
 }
 
 func (ml *messagesList) openAttachment(attachment discord.Attachment) {
@@ -1230,11 +1227,11 @@ func (ml *messagesList) openURL(url string) {
 	}
 }
 
-func (ml *messagesList) reply(mention bool) {
+func (ml *messagesList) reply(mention bool) tview.Cmd {
 	message, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
 	name := message.Author.DisplayOrUsername()
@@ -1254,26 +1251,26 @@ func (ml *messagesList) reply(mention bool) {
 
 	ml.chatView.messageInput.sendMessageData = data
 	ml.chatView.messageInput.SetTitle(title + name)
-	ml.chatView.app.SetFocus(ml.chatView.messageInput)
+	return tview.SetFocus(ml.chatView.messageInput)
 }
 
-func (ml *messagesList) editSelectedMessage() {
+func (ml *messagesList) editSelectedMessage() tview.Cmd {
 	message, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
 	me, _ := ml.chatView.state.Cabinet.Me()
 	if message.Author.ID != me.ID {
 		slog.Error("failed to edit message; not the author", "channel_id", message.ChannelID, "message_id", message.ID)
-		return
+		return nil
 	}
 
 	ml.chatView.messageInput.SetTitle("Editing")
 	ml.chatView.messageInput.edit = true
 	ml.chatView.messageInput.SetText(message.Content, true)
-	ml.chatView.app.SetFocus(ml.chatView.messageInput)
+	return tview.SetFocus(ml.chatView.messageInput)
 }
 
 func (ml *messagesList) confirmDelete() {

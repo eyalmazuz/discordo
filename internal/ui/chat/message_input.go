@@ -451,8 +451,7 @@ func (mi *messageInput) tabSuggest() tview.Cmd {
 	}
 
 	mi.mentionsList.rebuild()
-	mi.showMentionList()
-	return nil
+	return mi.showMentionsList()
 }
 
 type memberList []discord.Member
@@ -517,7 +516,7 @@ func (mi *messageInput) searchMember(gID discord.GuildID, name string) tview.Cmd
 	}
 }
 
-func (mi *messageInput) showMentionList() {
+func (mi *messageInput) showMentionsList() tview.Cmd {
 	borders := 0
 	if mi.cfg.Theme.Border.Enabled {
 		borders = 1
@@ -545,7 +544,7 @@ func (mi *messageInput) showMentionList() {
 
 	l.SetRect(x, y, w, h)
 	mi.chat.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
-	mi.chat.app.SetFocus(mi)
+	return tview.SetFocus(mi)
 }
 
 func (mi *messageInput) addMentionMember(gID discord.GuildID, m *discord.Member) bool {
