@@ -3,7 +3,6 @@ package token
 import (
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/tabs"
-	"github.com/gdamore/tcell/v3"
 )
 
 type Model struct {
@@ -23,14 +22,14 @@ func (m *Model) Label() string {
 	return "Token"
 }
 
-func (m *Model) HandleEvent(event tcell.Event) tview.Command {
-	switch event.(type) {
-	case *tview.FormSubmitEvent:
+func (m *Model) Update(msg tview.Msg) tview.Cmd {
+	switch msg.(type) {
+	case *tview.FormSubmitMsg:
 		token := m.GetFormItem(0).(*tview.InputField).GetText()
 		if token == "" {
 			return nil
 		}
 		return tokenCommand(token)
 	}
-	return m.Form.HandleEvent(event)
+	return m.Form.Update(msg)
 }

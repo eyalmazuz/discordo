@@ -22,20 +22,18 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/klauspost/compress v1.18.4
 	github.com/ncruces/zenity v0.10.14
-	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/yuin/goldmark v1.7.16
-	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/image v0.37.0
+	github.com/yuin/goldmark v1.8.2
+	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/image v0.38.0
 	golang.org/x/sys v0.42.0
 )
 
 require (
-	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
 	github.com/akavel/rsrc v0.10.2 // indirect
+	github.com/ayn2op/tview v0.0.0-20260406015348-02d490edcf9c // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dchest/jsmin v1.0.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
@@ -50,6 +48,7 @@ require (
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sergeymakinen/go-bmp v1.0.0 // indirect
 	github.com/sergeymakinen/go-ico v1.0.0 // indirect
 	github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af // indirect

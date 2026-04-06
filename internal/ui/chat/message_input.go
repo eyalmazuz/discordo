@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -38,8 +37,6 @@ import (
 const tmpFilePattern = consts.Name + "_*.md"
 
 var mentionRegex = regexp.MustCompile("@[a-zA-Z0-9._]+")
-var emojiRegex = regexp.MustCompile(":([a-zA-Z0-9_]+):")
-var afterFunc = time.AfterFunc
 
 type messageInput struct {
 	*tview.TextArea
@@ -57,6 +54,8 @@ type messageInput struct {
 	typingTimer   *time.Timer
 }
 
+type tabSuggestMsg struct{ tcell.EventTime }
+
 var _ help.KeyMap = (*messageInput)(nil)
 
 func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
@@ -66,19 +65,19 @@ func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
 		chat:            chatView,
 		sendMessageData: &api.SendMessageData{},
 		cache:           cache.NewCache(),
-		mentionsList:    newMentionsList(cfg, chatView),
+		mentionsList:    newMentionsList(cfg),
 	}
 	mi.Box = ui.ConfigureBox(mi.Box, &cfg.Theme)
 	mi.
 		SetPlaceholder(tview.NewLine(tview.NewSegment("Select a channel to start chatting", tcell.StyleDefault.Dim(true)))).
 		SetClipboard(
 			func(s string) {
-				if err := clipboardWrite(clipboard.FmtText, []byte(s)); err != nil {
+				if err := clipboard.Write(clipboard.FmtText, []byte(s)); err != nil {
 					slog.Error("failed to write clipboard text", "err", err)
 				}
 			},
 			func() string {
-				data, err := clipboardRead(clipboard.FmtText)
+				data, err := clipboard.Read(clipboard.FmtText)
 				if err != nil {
 					slog.Error("failed to read clipboard text", "err", err)
 					return ""
@@ -106,60 +105,46 @@ func (mi *messageInput) stopTypingTimer() {
 	}
 }
 
-func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.KeyEvent:
-		handler := mi.TextArea.HandleEvent
+func (mi *messageInput) Update(msg tview.Msg) tview.Cmd {
+	handler := mi.TextArea.Update
+	switch msg := msg.(type) {
+	case *tabSuggestMsg:
+		return mi.tabSuggest()
+	case *tview.KeyMsg:
 		switch {
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.Paste.Keybind):
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Paste.Keybind):
 			mi.paste()
 			return handler(tcell.NewEventKey(tcell.KeyCtrlV, "", tcell.ModNone))
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.Send.Keybind):
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Send.Keybind):
 			if mi.chat.GetVisible(mentionsListLayerName) {
-				mi.tabComplete()
+				return mi.tabComplete()
 			} else {
 				mi.send()
 			}
 			return nil
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.OpenEditor.Keybind):
-			var cmds []tview.Command
-			mi.stopTabCompletion(func(next tview.Command) {
-				if next != nil {
-					cmds = append(cmds, next)
-				}
-			})
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.OpenEditor.Keybind):
+			cmd := mi.stopTabCompletion()
 			mi.editor()
-			return tview.Batch(cmds...)
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.OpenFilePicker.Keybind):
-			var cmds []tview.Command
-			mi.stopTabCompletion(func(next tview.Command) {
-				if next != nil {
-					cmds = append(cmds, next)
-				}
-			})
+			return cmd
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.OpenFilePicker.Keybind):
+			cmd := mi.stopTabCompletion()
 			mi.openFilePicker()
-			return tview.Batch(cmds...)
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.Cancel.Keybind):
-			var cmds []tview.Command
+			return cmd
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Cancel.Keybind):
 			if mi.chat.GetVisible(mentionsListLayerName) {
-				mi.stopTabCompletion(func(next tview.Command) {
-					if next != nil {
-						cmds = append(cmds, next)
-					}
-				})
+				return mi.stopTabCompletion()
 			} else {
 				mi.reset()
 			}
-			return tview.Batch(cmds...)
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.TabComplete.Keybind):
-			go mi.chat.app.QueueUpdateDraw(func() { mi.tabComplete() })
 			return nil
-		case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.Undo.Keybind):
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.TabComplete.Keybind):
+			return mi.tabComplete()
+		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Undo.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyCtrlZ, "", tcell.ModNone))
 		}
 
 		if mi.cfg.TypingIndicator.Send && mi.typingTimer == nil {
-			mi.typingTimer = afterFunc(typingDuration, func() {
+			mi.typingTimer = time.AfterFunc(typingDuration, func() {
 				mi.typingTimerMu.Lock()
 				mi.typingTimer = nil
 				mi.typingTimerMu.Unlock()
@@ -172,32 +157,24 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command {
 
 		if mi.cfg.AutocompleteLimit > 0 {
 			if mi.chat.GetVisible(mentionsListLayerName) {
-				switch {
-				case keybind.Matches(event, mi.cfg.Keybinds.MentionsList.Up.Keybind):
-					mi.mentionsList.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-					return nil
-				case keybind.Matches(event, mi.cfg.Keybinds.MentionsList.Down.Keybind):
-					mi.mentionsList.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-					return nil
-				case keybind.Matches(event, mi.cfg.Keybinds.MentionsList.Top.Keybind):
-					mi.mentionsList.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
-					return nil
-				case keybind.Matches(event, mi.cfg.Keybinds.MentionsList.Bottom.Keybind):
-					mi.mentionsList.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
-					return nil
+				keybinds := mi.cfg.Keybinds.MentionsList
+				if keybind.Matches(msg, keybinds.Up.Keybind) ||
+					keybind.Matches(msg, keybinds.Down.Keybind) ||
+					keybind.Matches(msg, keybinds.Top.Keybind) ||
+					keybind.Matches(msg, keybinds.Bottom.Keybind) {
+					return mi.mentionsList.Update(msg)
 				}
 			}
 
-			go mi.chat.app.QueueUpdateDraw(func() { mi.tabSuggestion() })
+			// Apply key edits first, then recompute autocomplete through Msg/Cmd.
+			return tview.Batch(handler(msg), mi.tabSuggest())
 		}
-
-		return handler(event)
 	}
-	return mi.TextArea.HandleEvent(event)
+	return handler(msg)
 }
 
 func (mi *messageInput) paste() {
-	data, err := clipboardRead(clipboard.FmtImage)
+	data, err := clipboard.Read(clipboard.FmtImage)
 	if err != nil {
 		slog.Error("failed to read clipboard image", "err", err)
 		return
@@ -219,10 +196,9 @@ func (mi *messageInput) send() {
 		return
 	}
 
-	files := mi.sendMessageData.Files
 	// Close attached files on return
 	defer func() {
-		for _, file := range files {
+		for _, file := range mi.sendMessageData.Files {
 			if closer, ok := file.Reader.(io.Closer); ok {
 				closer.Close()
 			}
@@ -258,48 +234,35 @@ func (mi *messageInput) send() {
 	}
 	mi.reset()
 	mi.chat.messagesList.clearSelection()
-	mi.chat.messagesList.ScrollToEnd()
+	mi.chat.messagesList.ScrollBottom()
 }
 
 func (mi *messageInput) processText(channel *discord.Channel, src []byte) string {
-	hasMention := bytes.IndexByte(src, '@') != -1
-	hasEmoji := emojiRegex.Match(src)
-
-	// Fast path: nothing to expand.
-	if !hasMention && !hasEmoji {
+	// Fast path: no mentions to expand.
+	if bytes.IndexByte(src, '@') == -1 {
 		return string(src)
 	}
 
-	expand := func(b []byte) []byte {
-		if hasMention {
-			b = mi.expandMentions(channel, b)
-		}
-		if hasEmoji {
-			b = mi.expandEmojis(channel, b)
-		}
-		return b
-	}
-
-	// Fast path: no back ticks (code blocks), so expand directly.
+	// Fast path: no back ticks (code blocks), so expand mentions directly.
 	if bytes.IndexByte(src, '`') == -1 {
-		return string(expand(src))
+		return string(mi.expandMentions(channel, src))
 	}
 
 	var (
-		ranges    [][2]int
-		canExpand = true
+		ranges     [][2]int
+		canMention = true
 	)
 
 	ast.Walk(discordmd.Parse(src), func(node ast.Node, enter bool) (ast.WalkStatus, error) {
 		switch node := node.(type) {
 		case *ast.CodeBlock, *ast.FencedCodeBlock:
-			canExpand = !enter
+			canMention = !enter
 		case *discordmd.Inline:
 			if (node.Attr & discordmd.AttrMonospace) != 0 {
-				canExpand = !enter
+				canMention = !enter
 			}
 		case *ast.Text:
-			if canExpand {
+			if canMention {
 				ranges = append(ranges, [2]int{node.Segment.Start,
 					node.Segment.Stop})
 			}
@@ -307,36 +270,11 @@ func (mi *messageInput) processText(channel *discord.Channel, src []byte) string
 		return ast.WalkContinue, nil
 	})
 
-	for i := len(ranges) - 1; i >= 0; i-- {
-		rng := ranges[i]
-		if rng[0] < 0 || rng[1] > len(src) || rng[0] >= rng[1] {
-			continue
-		}
-		src = slices.Replace(src, rng[0], rng[1], expand(src[rng[0]:rng[1]])...)
+	for _, rng := range ranges {
+		src = slices.Replace(src, rng[0], rng[1], mi.expandMentions(channel, src[rng[0]:rng[1]])...)
 	}
 
 	return string(src)
-}
-
-func (mi *messageInput) expandEmojis(c *discord.Channel, src []byte) []byte {
-	emojis := availableEmojisForChannel(mi.chat.state, c)
-	if len(emojis) == 0 {
-		return src
-	}
-	return replaceEmojis(emojis, src)
-}
-
-// replaceEmojis substitutes :name: shortcodes with Discord emoji format.
-func replaceEmojis(emojis []discord.Emoji, src []byte) []byte {
-	return emojiRegex.ReplaceAllFunc(src, func(match []byte) []byte {
-		name := string(match[1 : len(match)-1]) // strip surrounding colons
-		for _, e := range emojis {
-			if e.Name == name {
-				return []byte(e.String())
-			}
-		}
-		return match
-	})
 }
 
 func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
@@ -370,82 +308,18 @@ func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
 	})
 }
 
-func (mi *messageInput) tabComplete() {
-	posEnd, name, r := mi.autocompleteTriggerUnderCursor()
-	switch r {
-	case '@':
-		mi.tabCompleteMention(posEnd, name)
-	case ':':
-		mi.tabCompleteEmoji(posEnd, name)
-	default:
-		mi.stopTabCompletion(nil)
-	}
-}
-
-func (mi *messageInput) tabSuggestion() {
-	_, name, r := mi.autocompleteTriggerUnderCursor()
-	if r != '@' && r != ':' {
-		mi.stopTabCompletion(nil)
-		return
-	}
-	selected := mi.chat.SelectedChannel()
-	if selected == nil {
-		mi.stopTabCompletion(nil)
-		return
-	}
-	switch r {
-	case '@':
-		mi.tabSuggestionMentions(selected, name)
-	case ':':
-		mi.tabSuggestionEmojis(selected, name)
-	}
-}
-
-type memberList []discord.Member
-type userList []discord.User
-type emojiList []discord.Emoji
-
-func (ml memberList) String(i int) string {
-	return ml[i].Nick + ml[i].User.DisplayName + ml[i].User.Tag()
-}
-
-func (ml memberList) Len() int {
-	return len(ml)
-}
-
-func (ul userList) String(i int) string {
-	return ul[i].DisplayName + ul[i].Tag()
-}
-
-func (ul userList) Len() int {
-	return len(ul)
-}
-
-func (el emojiList) String(i int) string {
-	return el[i].Name
-}
-
-func (el emojiList) Len() int {
-	return len(el)
-}
-
-func (mi *messageInput) autocompleteTriggerUnderCursor() (int, string, rune) {
-	if posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
+func (mi *messageInput) tabComplete() tview.Cmd {
+	posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
-	}); r == '@' {
-		return posEnd, name, r
-	}
-	return mi.GetWordUnderCursor(func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 	})
-}
-
-func (mi *messageInput) tabCompleteMention(posEnd int, name string) {
+	if r != '@' {
+		return mi.stopTabCompletion()
+	}
 	pos := posEnd - (len(name) + 1)
 
 	selected := mi.chat.SelectedChannel()
 	if selected == nil {
-		return
+		return nil
 	}
 	gID := selected.GuildID
 
@@ -457,52 +331,49 @@ func (mi *messageInput) tabCompleteMention(posEnd int, name string) {
 				mi.Replace(pos, posEnd, "@"+users[res[0].Index].Username+" ")
 			}
 		} else {
-			mi.searchMember(gID, name)
+			cmd := mi.searchMember(gID, name)
 			members, err := mi.chat.state.Cabinet.Members(gID)
 			if err != nil {
 				slog.Error("failed to get members from state", "guild_id", gID, "err", err)
-				return
+				return cmd
 			}
 
 			res := fuzzy.FindFrom(name, memberList(members))
 			for _, r := range res {
 				if channelHasUser(mi.chat.state, selected.ID, members[r.Index].User.ID) {
 					mi.Replace(pos, posEnd, "@"+members[r.Index].User.Username+" ")
-					return
+					return cmd
 				}
 			}
+			return cmd
 		}
-		return
+		return nil
 	}
 	if mi.mentionsList.itemCount() == 0 {
-		return
+		return nil
 	}
 	name, ok := mi.mentionsList.selectedInsertText()
 	if !ok {
-		return
+		return nil
 	}
 	mi.Replace(pos, posEnd, "@"+name+" ")
-	mi.stopTabCompletion(nil)
+	return mi.stopTabCompletion()
 }
 
-func (mi *messageInput) tabCompleteEmoji(posEnd int, name string) {
-	pos := posEnd - (len(name) + 1)
-	if mi.mentionsList.itemCount() == 0 {
-		return
+func (mi *messageInput) tabSuggest() tview.Cmd {
+	_, name, r := mi.GetWordUnderCursor(func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
+	})
+	if r != '@' {
+		return mi.stopTabCompletion()
 	}
-	name, ok := mi.mentionsList.selectedInsertText()
-	if !ok {
-		return
+	selected := mi.chat.SelectedChannel()
+	if selected == nil {
+		return nil
 	}
-	mi.Replace(pos, posEnd, ":"+name+":")
-	mi.stopTabCompletion(nil)
-}
-
-func (mi *messageInput) tabSuggestionMentions(selected *discord.Channel, name string) {
 	gID := selected.GuildID
 	cID := selected.ID
 	mi.mentionsList.clear()
-	mi.mentionsList.SetTitle("Mentions")
 
 	var shown map[string]struct{}
 	var userDone struct{}
@@ -518,7 +389,7 @@ func (mi *messageInput) tabSuggestionMentions(selected *discord.Channel, name st
 		if name == "" { // show recent messages' authors
 			msgs, err := mi.chat.state.Cabinet.Messages(cID)
 			if err != nil {
-				return
+				return nil
 			}
 			for _, m := range msgs {
 				if _, ok := shown[m.Author.Username]; ok {
@@ -539,7 +410,7 @@ func (mi *messageInput) tabSuggestionMentions(selected *discord.Channel, name st
 	} else if name == "" { // show recent messages' authors
 		msgs, err := mi.chat.state.Cabinet.Messages(cID)
 		if err != nil {
-			return
+			return nil
 		}
 		for _, m := range msgs {
 			if _, ok := shown[m.Author.Username]; ok {
@@ -554,83 +425,53 @@ func (mi *messageInput) tabSuggestionMentions(selected *discord.Channel, name st
 			}
 		}
 	} else {
-		mi.searchMember(gID, name)
+		searchCmd := mi.searchMember(gID, name)
 		mems, err := mi.chat.state.Cabinet.Members(gID)
 		if err != nil {
 			slog.Error("fetching members failed", "err", err)
-			return
+			return searchCmd
 		}
 		res := fuzzy.FindFrom(name, memberList(mems))
 		if len(res) > int(mi.cfg.AutocompleteLimit) {
 			res = res[:int(mi.cfg.AutocompleteLimit)]
 		}
 		for _, r := range res {
-			if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) {
-				mi.addMentionMember(gID, &mems[r.Index])
-			}
-		}
-	}
-
-	if mi.mentionsList.itemCount() == 0 {
-		mi.stopTabCompletion(nil)
-		return
-	}
-
-	mi.mentionsList.rebuild()
-	mi.showMentionList()
-}
-
-func (mi *messageInput) tabSuggestionEmojis(selected *discord.Channel, name string) {
-	mi.mentionsList.clear()
-	mi.mentionsList.SetTitle("Emotes")
-
-	emojis := dedupeEmojisByName(availableEmojisForChannel(mi.chat.state, selected))
-	if len(emojis) == 0 {
-		mi.stopTabCompletion(nil)
-		return
-	}
-
-	addEmoji := func(emoji discord.Emoji) bool {
-		mi.mentionsList.appendEmoji(emoji)
-		return mi.mentionsList.itemCount() >= int(mi.cfg.AutocompleteLimit)
-	}
-
-	if name == "" {
-		for _, emoji := range emojis {
-			if addEmoji(emoji) {
+			if channelHasUser(mi.chat.state, cID, mems[r.Index].User.ID) &&
+				mi.addMentionMember(gID, &mems[r.Index]) {
 				break
 			}
 		}
-	} else {
-		res := fuzzy.FindFrom(name, emojiList(emojis))
-		if len(res) > int(mi.cfg.AutocompleteLimit) {
-			res = res[:int(mi.cfg.AutocompleteLimit)]
-		}
-		for _, r := range res {
-			mi.mentionsList.appendEmoji(emojis[r.Index])
+		if mi.mentionsList.itemCount() == 0 {
+			return tview.Batch(mi.stopTabCompletion(), searchCmd)
 		}
 	}
 
 	if mi.mentionsList.itemCount() == 0 {
-		mi.stopTabCompletion(nil)
-		return
+		return mi.stopTabCompletion()
 	}
 
 	mi.mentionsList.rebuild()
 	mi.showMentionList()
+	return nil
 }
 
-func dedupeEmojisByName(emojis []discord.Emoji) []discord.Emoji {
-	seen := make(map[string]struct{}, len(emojis))
-	deduped := make([]discord.Emoji, 0, len(emojis))
-	for _, emoji := range emojis {
-		if _, ok := seen[emoji.Name]; ok {
-			continue
-		}
-		seen[emoji.Name] = struct{}{}
-		deduped = append(deduped, emoji)
-	}
-	return deduped
+type memberList []discord.Member
+type userList []discord.User
+
+func (ml memberList) String(i int) string {
+	return ml[i].Nick + ml[i].User.DisplayName + ml[i].User.Tag()
+}
+
+func (ml memberList) Len() int {
+	return len(ml)
+}
+
+func (ul userList) String(i int) string {
+	return ul[i].DisplayName + ul[i].Tag()
+}
+
+func (ul userList) Len() int {
+	return len(ul)
 }
 
 // channelHasUser checks if a user has permission to view the specified channel.
@@ -643,10 +484,12 @@ func channelHasUser(state *ningen.State, channelID discord.ChannelID, userID dis
 	return perms.Has(discord.PermissionViewChannel)
 }
 
-func (mi *messageInput) searchMember(gID discord.GuildID, name string) {
+// searchMember performs member discovery in a command goroutine.
+// It emits a follow-up suggestion message once results are loaded.
+func (mi *messageInput) searchMember(gID discord.GuildID, name string) tview.Cmd {
 	key := gID.String() + " " + name
 	if mi.cache.Exists(key) {
-		return
+		return nil
 	}
 	// If searching for "ab" returns less than SearchLimit,
 	// then "abc" would not return anything new because we already searched
@@ -655,20 +498,23 @@ func (mi *messageInput) searchMember(gID discord.GuildID, name string) {
 	if k := key[:len(key)-1]; mi.cache.Exists(k) {
 		if c := mi.cache.Get(k); c < mi.chat.state.MemberState.SearchLimit {
 			mi.cache.Create(key, c)
-			return
+			return nil
 		}
 	}
 
 	// Rate limit on our side because we can't distinguish between a successful search and SearchMember not doing anything because of its internal rate limit that we can't detect
 	if mi.lastSearch.Add(mi.chat.state.MemberState.SearchFrequency).After(time.Now()) {
-		return
+		return nil
 	}
 
 	mi.lastSearch = time.Now()
-	mi.chat.messagesList.waitForChunkEvent()
-	mi.chat.messagesList.setFetchingChunk(true, 0)
-	mi.chat.state.MemberState.SearchMember(gID, name)
-	mi.cache.Create(key, mi.chat.messagesList.waitForChunkEvent())
+	return func() tview.Msg {
+		mi.chat.messagesList.waitForChunkEvent()
+		mi.chat.messagesList.setFetchingChunk(true, 0)
+		mi.chat.state.MemberState.SearchMember(gID, name)
+		mi.cache.Create(key, mi.chat.messagesList.waitForChunkEvent())
+		return &tabSuggestMsg{}
+	}
 }
 
 func (mi *messageInput) showMentionList() {
@@ -677,9 +523,9 @@ func (mi *messageInput) showMentionList() {
 		borders = 1
 	}
 	l := mi.mentionsList
-	x, _, _, _ := mi.GetInnerRect()
-	_, y, _, _ := mi.GetRect()
-	_, _, maxW, maxH := mi.chat.messagesList.GetInnerRect()
+	x, _, _, _ := mi.InnerRect()
+	_, y, _, _ := mi.Rect()
+	_, _, maxW, maxH := mi.chat.messagesList.InnerRect()
 	if t := int(mi.cfg.Theme.MentionsList.MaxHeight); t != 0 {
 		maxH = min(maxH, t)
 	}
@@ -760,43 +606,29 @@ func (mi *messageInput) addMentionUser(user *discord.User) {
 }
 
 func (mi *messageInput) removeMentionsList() {
-	mi.mentionsList.clear()
-	mi.chat.HideLayer(mentionsListLayerName)
-}
-
-func (mi *messageInput) stopTabCompletion(emit func(tview.Command)) {
-	if mi.cfg.AutocompleteLimit > 0 {
-		mi.mentionsList.clear()
-		if emit != nil {
-			emit(closeLayer(mentionsListLayerName))
-			emit(tview.SetFocus(mi))
-		} else {
-			mi.removeMentionsList()
-			mi.chat.app.SetFocus(mi)
-		}
+	// Make sure that the layer is visible before hiding it to avoid a refocus in the parent.
+	if mi.chat.GetVisible(mentionsListLayerName) {
+		mi.chat.HideLayer(mentionsListLayerName)
 	}
 }
 
-var (
-	createEditorCmd      = func(cfg *config.Config, path string) *exec.Cmd { return cfg.CreateEditorCommand(path) }
-	runEditorCmd         = func(cmd *exec.Cmd) error { return cmd.Run() }
-	createTempFile       = os.CreateTemp
-	removeFile           = os.Remove
-	readFile             = os.ReadFile
-	clipboardRead        = clipboard.Read
-	clipboardWrite       = clipboard.Write
-	selectFileMultiple   = zenity.SelectFileMultiple
-	openFile             = os.Open
-)
+func (mi *messageInput) stopTabCompletion() tview.Cmd {
+	if mi.cfg.AutocompleteLimit > 0 {
+		mi.mentionsList.clear()
+		mi.removeMentionsList()
+		return tview.SetFocus(mi)
+	}
+	return nil
+}
 
 func (mi *messageInput) editor() {
-	file, err := createTempFile("", tmpFilePattern)
+	file, err := os.CreateTemp("", tmpFilePattern)
 	if err != nil {
 		slog.Error("failed to create tmp file", "err", err)
 		return
 	}
 	defer file.Close()
-	defer removeFile(file.Name())
+	defer os.Remove(file.Name())
 
 	file.WriteString(mi.GetText())
 
@@ -805,7 +637,7 @@ func (mi *messageInput) editor() {
 		return
 	}
 
-	cmd := createEditorCmd(mi.cfg, file.Name())
+	cmd := mi.cfg.CreateEditorCommand(file.Name())
 	if cmd == nil {
 		return
 	}
@@ -815,14 +647,14 @@ func (mi *messageInput) editor() {
 	cmd.Stderr = os.Stderr
 
 	mi.chat.app.Suspend(func() {
-		err := runEditorCmd(cmd)
+		err := cmd.Run()
 		if err != nil {
 			slog.Error("failed to run command", "args", cmd.Args, "err", err)
 			return
 		}
 	})
 
-	msg, err := readFile(file.Name())
+	msg, err := os.ReadFile(file.Name())
 	if err != nil {
 		slog.Error("failed to read tmp file", "name", file.Name(), "err", err)
 		return
@@ -836,14 +668,14 @@ func (mi *messageInput) openFilePicker() {
 		return
 	}
 
-	paths, err := selectFileMultiple()
+	paths, err := zenity.SelectFileMultiple()
 	if err != nil {
 		slog.Error("failed to open file dialog", "err", err)
 		return
 	}
 
 	for _, path := range paths {
-		file, err := openFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			slog.Error("failed to open file", "path", path, "err", err)
 			continue

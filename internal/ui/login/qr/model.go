@@ -44,66 +44,66 @@ func (m *Model) Label() string {
 	return "QR"
 }
 
-func (m *Model) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.InitEvent:
+func (m *Model) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.InitMsg:
 		m.msg = "Connecting to Remote Auth Gateway..."
 		return m.connect()
-	case *tview.KeyEvent:
-		if event.Key() == tcell.KeyEsc {
+	case *tview.KeyMsg:
+		if msg.Key() == tcell.KeyEsc {
 			m.msg = "Canceled"
 			return tview.Batch(m.close(), nil)
 		}
-		return m.TextView.HandleEvent(event)
+		return m.TextView.Update(msg)
 
-	case *connCreateEvent:
-		m.conn = event.conn
+	case *connCreateMsg:
+		m.conn = msg.conn
 		m.msg = "Connected. Handshaking..."
 		return m.listen()
-	case *connCloseEvent:
+	case *connCloseMsg:
 		m.conn = nil
 		return nil
 
-	case *helloEvent:
-		m.heartbeatInterval = time.Duration(event.heartbeatInterval) * time.Millisecond
+	case *helloMsg:
+		m.heartbeatInterval = time.Duration(msg.heartbeatInterval) * time.Millisecond
 		return tview.Batch(m.listen(), m.heartbeat(), m.generatePrivateKey())
-	case *privateKeyEvent:
-		m.privateKey = event.privateKey
+	case *privateKeyMsg:
+		m.privateKey = msg.privateKey
 		return tview.Batch(m.listen(), m.sendInit())
-	case *nonceProofEvent:
-		return tview.Batch(m.listen(), m.sendNonceProof(event.encryptedNonce))
-	case *pendingRemoteInitEvent:
-		m.fingerprint = event.fingerprint
-		return tview.Batch(m.listen(), m.generateQRCode(event.fingerprint))
-	case *qrCodeEvent:
-		m.qrCode = event.qrCode
+	case *nonceProofMsg:
+		return tview.Batch(m.listen(), m.sendNonceProof(msg.encryptedNonce))
+	case *pendingRemoteInitMsg:
+		m.fingerprint = msg.fingerprint
+		return tview.Batch(m.listen(), m.generateQRCode(msg.fingerprint))
+	case *qrCodeMsg:
+		m.qrCode = msg.qrCode
 		m.msg = "Scan this with the Discord mobile app to log in instantly."
 		return m.listen()
-	case *pendingTicketEvent:
-		return tview.Batch(m.listen(), m.decryptUserPayload(event.encryptedUserPayload))
-	case *userEvent:
-		name := event.username
-		if event.discriminator != "0" {
-			name += "#" + event.discriminator
+	case *pendingTicketMsg:
+		return tview.Batch(m.listen(), m.decryptUserPayload(msg.encryptedUserPayload))
+	case *userMsg:
+		name := msg.username
+		if msg.discriminator != "0" {
+			name += "#" + msg.discriminator
 		}
 		m.msg = fmt.Sprintf("Check your phone! Logging in as %s", name)
 		return m.listen()
-	case *pendingLoginEvent:
+	case *pendingLoginMsg:
 		m.msg = "Authenticating..."
-		return tview.Batch(m.close(), m.exchangeTicket(event.ticket))
-	case *cancelEvent:
+		return tview.Batch(m.close(), m.exchangeTicket(msg.ticket))
+	case *cancelMsg:
 		m.msg = "Login canceled on mobile"
 		return m.close()
 
-	case *heartbeatTickEvent:
+	case *heartbeatTickMsg:
 		if m.conn == nil {
 			return nil
 		}
 		return tview.Batch(m.heartbeat(), m.sendHeartbeat())
 
-	case *tcell.EventError:
-		m.msg = event.Error()
-		return tview.Batch(m.close(), tview.Command(func() tcell.Event { return event }))
+	case *errMsg:
+		m.msg = msg.err.Error()
+		return m.close()
 	}
 
 	return nil
@@ -146,7 +146,7 @@ func (m *Model) Draw(screen tcell.Screen) {
 }
 
 func (m *Model) centerLines(lines []tview.Line) []tview.Line {
-	_, _, _, height := m.GetInnerRect()
+	_, _, _, height := m.InnerRect()
 	if height == 0 {
 		height = 40
 	}

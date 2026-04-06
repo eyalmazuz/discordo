@@ -2,11 +2,10 @@ package chat
 
 import (
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/discordo/pkg/picker"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/help"
 	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/picker"
 )
 
 type attachmentItem struct {
@@ -15,7 +14,7 @@ type attachmentItem struct {
 }
 
 type attachmentsPicker struct {
-	*picker.Picker
+	*picker.Model
 	cfg      *config.Config
 	chatView *Model
 	items    []attachmentItem
@@ -25,70 +24,50 @@ var _ help.KeyMap = (*attachmentsPicker)(nil)
 
 func newAttachmentsPicker(cfg *config.Config, chatView *Model) *attachmentsPicker {
 	ap := &attachmentsPicker{
-		Picker:   picker.New(),
+		Model:    picker.NewModel(),
 		cfg:      cfg,
 		chatView: chatView,
 	}
-	ap.SetFocusFunc(func(p tview.Primitive) {
-		chatView.app.SetFocus(p)
-	})
-	ap.Box = ui.ConfigureBox(tview.NewBox(), &cfg.Theme)
-	ap.
-		SetBlurFunc(nil).
-		SetFocusFunc(nil).
-		SetBorderSet(cfg.Theme.Border.ActiveSet.BorderSet).
-		SetBorderStyle(cfg.Theme.Border.ActiveStyle.Style).
-		SetTitleStyle(cfg.Theme.Title.ActiveStyle.Style).
-		SetFooterStyle(cfg.Theme.Footer.ActiveStyle.Style)
-
-	ap.SetTitle("Attachments")
-	ap.SetSelectedFunc(ap.onSelected)
-	ap.SetCancelFunc(ap.close)
-	ap.SetKeyMap(&picker.KeyMap{
-		Cancel:      cfg.Keybinds.Picker.Cancel.Keybind,
-		ToggleFocus: cfg.Keybinds.Picker.ToggleFocus.Keybind,
-		Up:          cfg.Keybinds.Picker.Up.Keybind,
-		Down:        cfg.Keybinds.Picker.Down.Keybind,
-		Top:         cfg.Keybinds.Picker.Top.Keybind,
-		Bottom:      cfg.Keybinds.Picker.Bottom.Keybind,
-		Select:      cfg.Keybinds.Picker.Select.Keybind,
-	})
-	ap.SetScrollBarVisibility(cfg.Theme.ScrollBar.Visibility.ScrollBarVisibility)
-	ap.SetScrollBar(tview.NewScrollBar().
-		SetTrackStyle(cfg.Theme.ScrollBar.TrackStyle.Style).
-		SetThumbStyle(cfg.Theme.ScrollBar.ThumbStyle.Style).
-		SetGlyphSet(cfg.Theme.ScrollBar.GlyphSet.GlyphSet))
+	ConfigurePicker(ap.Model, cfg, "Attachments")
 	return ap
 }
 
 func (ap *attachmentsPicker) SetItems(items []attachmentItem) {
 	ap.items = items
-	ap.ClearItems()
+	pickerItems := make(picker.Items, 0, len(items))
 	for i, item := range items {
-		ap.AddItem(picker.Item{
+		pickerItems = append(pickerItems, picker.Item{
 			Text:       item.label,
 			FilterText: item.label,
 			Reference:  i,
 		})
 	}
-	ap.Update()
+	ap.Model.SetItems(pickerItems)
 }
 
-func (ap *attachmentsPicker) onSelected(item picker.Item) {
-	index, ok := item.Reference.(int)
-	if !ok {
-		return
-	}
-	if index < 0 || index >= len(ap.items) {
-		return
-	}
-	ap.items[index].open()
-	ap.close()
+func (ap *attachmentsPicker) close() tview.Cmd {
+
+	ap.chatView.RemoveLayer(attachmentsPickerLayerName)
+	return tview.SetFocus(ap.chatView.messagesList)
 }
 
-func (ap *attachmentsPicker) close() {
-	ap.chatView.RemoveLayer(attachmentsListLayerName)
-	ap.chatView.app.SetFocus(ap.chatView.messagesList)
+func (ap *attachmentsPicker) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *picker.SelectedMsg:
+		index, ok := msg.Reference.(int)
+		if !ok {
+			return nil
+		}
+		if index < 0 || index >= len(ap.items) {
+			return nil
+		}
+		ap.items[index].open()
+		return ap.close()
+	case *picker.CancelMsg:
+		return ap.close()
+	}
+
+	return ap.Model.Update(msg)
 }
 
 func (ap *attachmentsPicker) ShortHelp() []keybind.Keybind {

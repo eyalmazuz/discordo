@@ -34,8 +34,8 @@ padding = [1, 1]
 separator = " • "
 
 [picker]
-width = 60
-height = 20
+width = 80
+height = 25
 
 [timestamps]
 enabled = true
@@ -215,11 +215,17 @@ auto_expand_folders = true
 graphics = true
 graphics_color = "default"
 
+# Direct-message recipient presence styles.
+online_style = { foreground = "green" }
+idle_style = { foreground = "yellow" }
+dnd_style = { foreground = "red" }
+offline_style = { foreground = "gray" }
+
 # Guilds tree indentation for different item types
 [theme.guilds_tree.indents]
 dm = 2
 group_dm = 1
-guild = 2      # server inside a folder
+guild = 2    # server inside a folder
 category = 1
 channel = 2
 forum = 2

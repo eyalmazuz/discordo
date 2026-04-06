@@ -10,6 +10,7 @@ import (
 	"github.com/ayn2op/discordo/internal/ui/login/qr"
 	"github.com/ayn2op/discordo/internal/ui/login/token"
 	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/flex"
 	"github.com/eyalmazuz/tview/help"
 	"github.com/eyalmazuz/tview/keybind"
 	"github.com/gdamore/tcell/v3"
@@ -19,33 +20,29 @@ const tokenEnvVarKey = "DISCORDO_TOKEN"
 
 type Model struct {
 	app      *tview.Application
-	rootFlex *tview.Flex // inner + help
-	inner    tview.Primitive
-	help     *help.Help
+	rootFlex *flex.Model // inner + help
+	inner    tview.Model
+	help     *help.Model
 
 	cfg *config.Config
-}
-
-var suspendModel = func(m *Model) {
-	m.suspend()
 }
 
 func NewModel(cfg *config.Config, app *tview.Application) *Model {
 	m := &Model{
 		app:      app,
-		rootFlex: tview.NewFlex(),
-		help:     help.New(),
+		rootFlex: flex.NewModel(),
+		help:     help.NewModel(),
 
 		cfg: cfg,
 	}
 
-	m.rootFlex.SetDirection(tview.FlexRow)
+	m.rootFlex.SetDirection(flex.DirectionRow)
 
 	styles := help.DefaultStyles()
-	styles.ShortKeyStyle = cfg.Theme.Help.ShortKeyStyle.Style
-	styles.ShortDescStyle = cfg.Theme.Help.ShortDescStyle.Style
-	styles.FullKeyStyle = cfg.Theme.Help.FullKeyStyle.Style
-	styles.FullDescStyle = cfg.Theme.Help.FullDescStyle.Style
+	styles.ShortKey = cfg.Theme.Help.ShortKeyStyle.Style
+	styles.ShortDesc = cfg.Theme.Help.ShortDescStyle.Style
+	styles.FullKey = cfg.Theme.Help.FullKeyStyle.Style
+	styles.FullDesc = cfg.Theme.Help.FullDescStyle.Style
 	m.help.SetStyles(styles)
 
 	m.help.SetKeyMap(m)
@@ -56,16 +53,16 @@ func NewModel(cfg *config.Config, app *tview.Application) *Model {
 	return m
 }
 
-func (m *Model) showLogin() tview.Command {
+func (m *Model) showLogin() tview.Cmd {
 	m.inner = login.NewModel(m.cfg)
 	m.buildLayout()
-	return tview.Batch(m.inner.HandleEvent(&tview.InitEvent{}), tview.SetFocus(m))
+	return tview.Batch(m.inner.Update(&tview.InitMsg{}), tview.SetFocus(m))
 }
 
-func (m *Model) showChat(token string) tview.Command {
-	m.inner = chat.NewView(m.app, m.cfg, token)
+func (m *Model) showChat(token string) tview.Cmd {
+	m.inner = chat.NewModel(m.app, m.cfg, token)
 	m.buildLayout()
-	return tview.Batch(m.inner.HandleEvent(&tview.InitEvent{}), tview.SetFocus(m))
+	return tview.Batch(m.inner.Update(&tview.InitMsg{}), tview.SetFocus(m))
 }
 
 func (m *Model) buildLayout() {
@@ -77,16 +74,16 @@ func (m *Model) buildLayout() {
 	m.updateHelpHeight()
 }
 
-var _ tview.Primitive = (*Model)(nil)
+var _ tview.Model = (*Model)(nil)
 
 func (m *Model) Draw(screen tcell.Screen) {
 	m.rootFlex.Draw(screen)
 }
 
-func (m *Model) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.InitEvent:
-		var cmd tview.Command
+func (m *Model) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.InitMsg:
+		var cmd tview.Cmd
 		if token := os.Getenv(tokenEnvVarKey); token != "" {
 			cmd = tokenCommand(token)
 		} else {
@@ -98,42 +95,42 @@ func (m *Model) HandleEvent(event tcell.Event) tview.Command {
 			cmd,
 		)
 
-	case *loginEvent:
+	case *loginMsg:
 		return m.showLogin()
-	case *tokenEvent:
-		return m.showChat(event.token)
+	case *tokenMsg:
+		return m.showChat(msg.token)
 
-	case *token.TokenEvent:
-		return tview.Batch(m.showChat(event.Token), setToken(event.Token))
-	case *qr.TokenEvent:
-		return tview.Batch(m.showChat(event.Token), setToken(event.Token))
+	case *token.TokenMsg:
+		return tview.Batch(m.showChat(msg.Token), setToken(msg.Token))
+	case *qr.TokenMsg:
+		return tview.Batch(m.showChat(msg.Token), setToken(msg.Token))
 
-	case *chat.LogoutEvent:
+	case *chat.LogoutMsg:
 		return tview.Batch(
 			m.showLogin(),
 			deleteToken(),
 		)
 
-	case *tview.KeyEvent:
+	case *tview.KeyMsg:
 		switch {
-		case keybind.Matches(event, m.cfg.Keybinds.ToggleHelp.Keybind):
+		case keybind.Matches(msg, m.cfg.Keybinds.ToggleHelp.Keybind):
 			m.help.SetShowAll(!m.help.ShowAll())
 			m.updateHelpHeight()
 			return nil
-		case keybind.Matches(event, m.cfg.Keybinds.Suspend.Keybind):
-			suspendModel(m)
+		case keybind.Matches(msg, m.cfg.Keybinds.Suspend.Keybind):
+			m.suspend()
 			return nil
-		case keybind.Matches(event, m.cfg.Keybinds.Quit.Keybind):
-			var innerCmd tview.Command
+		case keybind.Matches(msg, m.cfg.Keybinds.Quit.Keybind):
+			var innerCmd tview.Cmd
 			if m.inner != nil {
-				innerCmd = m.inner.HandleEvent(&chat.QuitEvent{})
+				innerCmd = m.inner.Update(&chat.QuitMsg{})
 			}
 			return tview.Batch(innerCmd, tview.Quit())
 		}
 	}
 
 	if m.inner != nil {
-		return m.inner.HandleEvent(event)
+		return m.inner.Update(msg)
 	}
 	return nil
 }
@@ -146,15 +143,15 @@ func (m *Model) updateHelpHeight() {
 	m.rootFlex.ResizeItem(m.help, height, 0)
 }
 
-func (m *Model) GetRect() (int, int, int, int) {
-	return m.rootFlex.GetRect()
+func (m *Model) Rect() (int, int, int, int) {
+	return m.rootFlex.Rect()
 }
 
 func (m *Model) SetRect(x int, y int, width int, height int) {
 	m.rootFlex.SetRect(x, y, width, height)
 }
 
-func (m *Model) Focus(delegate func(p tview.Primitive)) {
+func (m *Model) Focus(delegate func(tview.Model)) {
 	if m.inner != nil {
 		delegate(m.inner)
 	}

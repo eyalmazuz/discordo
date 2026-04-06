@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -151,7 +152,7 @@ func (gw *GlyphSetWrapper) UnmarshalTOML(val any) error {
 	return nil
 }
 
-type ScrollBarVisibilityWrapper struct{ tview.ScrollBarVisibility }
+type ScrollBarVisibilityWrapper struct{ list.ScrollBarVisibility }
 
 func (vw *ScrollBarVisibilityWrapper) UnmarshalTOML(val any) error {
 	s, ok := val.(string)
@@ -161,11 +162,11 @@ func (vw *ScrollBarVisibilityWrapper) UnmarshalTOML(val any) error {
 
 	switch s {
 	case "automatic", "auto":
-		vw.ScrollBarVisibility = tview.ScrollBarVisibilityAutomatic
+		vw.ScrollBarVisibility = list.ScrollBarVisibilityAutomatic
 	case "always":
-		vw.ScrollBarVisibility = tview.ScrollBarVisibilityAlways
+		vw.ScrollBarVisibility = list.ScrollBarVisibilityAlways
 	case "never", "hidden", "off":
-		vw.ScrollBarVisibility = tview.ScrollBarVisibilityNever
+		vw.ScrollBarVisibility = list.ScrollBarVisibilityNever
 	}
 
 	return nil
@@ -208,6 +209,11 @@ type (
 		Graphics          bool              `toml:"graphics"`
 		GraphicsColor     string            `toml:"graphics_color"`
 		Indents           GuildsTreeIndents `toml:"indents"`
+
+		OnlineStyle  StyleWrapper `toml:"online_style"`
+		IdleStyle    StyleWrapper `toml:"idle_style"`
+		DNDStyle     StyleWrapper `toml:"dnd_style"`
+		OfflineStyle StyleWrapper `toml:"offline_style"`
 	}
 
 	GuildsTreeIndents struct {

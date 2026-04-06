@@ -26,9 +26,6 @@ import (
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
@@ -36,6 +33,10 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/json/option"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3/discordmd"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
 	"github.com/rivo/uniseg"
@@ -70,7 +71,7 @@ var (
 )
 
 type messagesList struct {
-	*tview.List
+	*list.Model
 	cfg      *config.Config
 	chatView *Model
 	messages []discord.Message
@@ -141,26 +142,32 @@ const inlineEmoteWidth = 2
 func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
 	useKitty := resolveKittyMode(cfg.InlineImages.Renderer)
 	ml := &messagesList{
-		List:           tview.NewList(),
-		cfg:            cfg,
-		chatView:       chatView,
-		renderer:       markdown.NewRenderer(cfg),
-		itemByID:       make(map[discord.MessageID]*tview.TextView),
+		Model:            list.NewModel(),
+		cfg:              cfg,
+		chatView:         chatView,
+		renderer:         markdown.NewRenderer(cfg),
+		itemByID:         make(map[discord.MessageID]*tview.TextView),
 		imageItemByKey:   make(map[string]*imageItem),
 		emoteItemByKey:   make(map[string]*imageItem),
 		stickerItemByKey: make(map[string]*imageItem),
-		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
-		useKitty:       useKitty,
-		nextKittyID:    1,
+		imageCache:       imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
+		useKitty:         useKitty,
+		nextKittyID:      1,
 	}
 	ml.attachmentsPicker = newAttachmentsPicker(cfg, chatView)
-	ml.reactionPicker = newReactionPicker(cfg, chatView, ml, ml.imageCache)
+	ml.reactionPicker = newReactionPicker(cfg, chatView, ml)
 
 	ml.Box = ui.ConfigureBox(ml.Box, &cfg.Theme)
 	ml.SetTitle("Messages")
 	ml.SetBuilder(ml.buildItem)
 	ml.SetChangedFunc(ml.onRowCursorChanged)
 	ml.SetTrackEnd(true)
+	ml.SetKeybinds(list.Keybinds{
+		ScrollUp:     cfg.Keybinds.MessagesList.ScrollUp.Keybind,
+		ScrollDown:   cfg.Keybinds.MessagesList.ScrollDown.Keybind,
+		ScrollTop:    cfg.Keybinds.MessagesList.ScrollTop.Keybind,
+		ScrollBottom: cfg.Keybinds.MessagesList.ScrollBottom.Keybind,
+	})
 	ml.SetScrollBarVisibility(cfg.Theme.ScrollBar.Visibility.ScrollBarVisibility)
 	ml.SetScrollBar(tview.NewScrollBar().
 		SetTrackStyle(cfg.Theme.ScrollBar.TrackStyle.Style).
@@ -187,7 +194,7 @@ func (ml *messagesList) reset() {
 
 func (ml *messagesList) Draw(screen tcell.Screen) {
 	ml.lastScreen = screen
-	overlayVisible := ml.chatView != nil && ml.chatView.hasPopupOverlay()
+	overlayVisible := ml.chatView != nil && (ml.chatView.GetVisible(channelsPickerLayerName) || ml.chatView.GetVisible(messageSearchLayerName) || ml.chatView.GetVisible(pinnedMessagesLayerName) || ml.chatView.GetVisible(reactionPickerLayerName) || ml.chatView.GetVisible(attachmentsPickerLayerName))
 	if ml.cfg.InlineImages.Enabled && ml.useKitty {
 		ml.setKittySuspended(screen, overlayVisible)
 		if !ml.kittySuspended {
@@ -229,7 +236,7 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 		}
 	}
 
-	ml.List.Draw(screen)
+	ml.Model.Draw(screen)
 
 	ml.scanAndDrawEmotes(screen)
 
@@ -264,7 +271,7 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 		return
 	}
 
-	x, y, w, h := ml.GetInnerRect()
+	x, y, w, h := ml.InnerRect()
 	for i := y; i < y+h; i++ {
 		for j := x; j < x+w; j++ {
 			_, style, _ := screen.Get(j, i)
@@ -277,7 +284,7 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 			key := fmt.Sprintf("%s@%d,%d", url, j, i)
 			item, ok := ml.emoteItemByKey[key]
 			if !ok {
-				item = newImageItem(ml.imageCache, url, inlineEmoteWidth, 1, ml.currentUseKitty(), ml.nextKittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+				item = newImageItem(ml.imageCache, url, inlineEmoteWidth, 1, ml.currentUseKitty(), ml.nextKittyID, ml.InnerRect, ml.scheduleAnimatedRedraw)
 				ml.nextKittyID++
 				if ml.currentUseKitty() && ml.cellW > 0 {
 					item.setCellDimensions(ml.cellW, ml.cellH)
@@ -287,7 +294,7 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 				// Trigger async download so the emote image actually loads.
 				ml.imageCache.Request(url, 0, 0, func() {
 					if ml.chatView != nil && ml.chatView.app != nil {
-						ml.chatView.app.QueueUpdateDraw(func() {})
+						triggerRedraw(ml.chatView.app)
 					}
 				})
 			}
@@ -470,7 +477,7 @@ func (ml *messagesList) queueAnimatedDraw() {
 	if ml.chatView == nil || ml.chatView.app == nil {
 		return
 	}
-	ml.chatView.app.QueueUpdateDraw(func() {})
+	triggerRedraw(ml.chatView.app)
 }
 
 func resolveKittyMode(renderer string) bool {
@@ -535,7 +542,7 @@ func (ml *messagesList) clearSelection() {
 	ml.SetCursor(-1)
 }
 
-func (ml *messagesList) buildItem(index int, cursor int) tview.ListItem {
+func (ml *messagesList) buildItem(index int, cursor int) list.Item {
 	ml.ensureRows()
 
 	if index < 0 || index >= len(ml.rows) {
@@ -604,7 +611,7 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 	kittyID := ml.nextKittyID
 	ml.nextKittyID++
 
-	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.currentUseKitty(), kittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.currentUseKitty(), kittyID, ml.InnerRect, ml.scheduleAnimatedRedraw)
 	if ml.currentUseKitty() && ml.cellW > 0 {
 		item.setCellDimensions(ml.cellW, ml.cellH)
 	}
@@ -612,7 +619,7 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 
 	// Request async download if not already cached.
 	ml.imageCache.Request(url, cfg.MaxFileSize, a.Size, func() {
-		ml.chatView.app.QueueUpdateDraw(func() {})
+		triggerRedraw(ml.chatView.app)
 	})
 
 	return item
@@ -635,7 +642,7 @@ func (ml *messagesList) buildStickerItem(row messagesListRow) *imageItem {
 	// Stickers are usually 320x320. We scale them to 40% of the configured inline image size.
 	maxW := int(float64(cfg.MaxWidth) * 0.4)
 	maxH := int(float64(cfg.MaxHeight) * 0.4)
-	item := newImageItem(ml.imageCache, url, maxW, maxH, ml.currentUseKitty(), kittyID, ml.GetInnerRect, ml.scheduleAnimatedRedraw)
+	item := newImageItem(ml.imageCache, url, maxW, maxH, ml.currentUseKitty(), kittyID, ml.InnerRect, ml.scheduleAnimatedRedraw)
 	if ml.currentUseKitty() && ml.cellW > 0 {
 		item.setCellDimensions(ml.cellW, ml.cellH)
 	}
@@ -643,7 +650,7 @@ func (ml *messagesList) buildStickerItem(row messagesListRow) *imageItem {
 
 	// Stickers don't have a size field in StickerItem, so we use 0 (unlimited for now or we can pick a sensible default).
 	ml.imageCache.Request(url, cfg.MaxFileSize, 0, func() {
-		ml.chatView.app.QueueUpdateDraw(func() {})
+		triggerRedraw(ml.chatView.app)
 	})
 
 	return item
@@ -654,7 +661,7 @@ func (ml *messagesList) drawDateSeparator(builder *tview.LineBuilder, ts discord
 	label := " " + date + " "
 	fillChar := ml.cfg.DateSeparator.Character
 	dimStyle := baseStyle.Dim(true)
-	_, _, width, _ := ml.GetInnerRect()
+	_, _, width, _ := ml.InnerRect()
 	if width <= 0 {
 		builder.Write(strings.Repeat(fillChar, 8)+label+strings.Repeat(fillChar, 8), dimStyle)
 		return
@@ -737,7 +744,7 @@ func sameLocalDate(a discord.Timestamp, b discord.Timestamp) bool {
 // Cursor returns the selected message index, skipping separator rows.
 func (ml *messagesList) Cursor() int {
 	ml.ensureRows()
-	rowIndex := ml.List.Cursor()
+	rowIndex := ml.Model.Cursor()
 	if rowIndex < 0 || rowIndex >= len(ml.rows) {
 		return -1
 	}
@@ -751,7 +758,7 @@ func (ml *messagesList) Cursor() int {
 
 // SetCursor selects a message index and maps it to the corresponding row.
 func (ml *messagesList) SetCursor(index int) {
-	ml.List.SetCursor(ml.messageToRowIndex(index))
+	ml.Model.SetCursor(ml.messageToRowIndex(index))
 }
 
 func (ml *messagesList) messageToRowIndex(messageIndex int) int {
@@ -776,7 +783,7 @@ func (ml *messagesList) onRowCursorChanged(rowIndex int) {
 	}
 
 	target := ml.nearestMessageRowIndex(rowIndex)
-	ml.List.SetCursor(target)
+	ml.Model.SetCursor(target)
 }
 
 // nearestMessageRowIndex expects rowIndex to be within bounds.
@@ -996,7 +1003,7 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 	defaultBarStyle := baseStyle.Dim(true)
 	prefixText := "  ▎ "
 	prefixWidth := tview.TaggedStringWidth(prefixText)
-	_, _, innerWidth, _ := ml.GetInnerRect()
+	_, _, innerWidth, _ := ml.InnerRect()
 	// Wrap against the current list viewport. This keeps embed wrapping stable even when sidebars/panes are resized.
 	wrapWidth := max(innerWidth-prefixWidth, 1)
 
@@ -1353,14 +1360,14 @@ func (ml *messagesList) selectedMessage() (*discord.Message, error) {
 	return &ml.messages[cursor], nil
 }
 
-func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.MouseEvent:
-		if event.Action != tview.MouseLeftClick {
+func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.MouseMsg:
+		if msg.Action != tview.MouseLeftClick {
 			break
 		}
 
-		x, y := event.Position()
+		x, y := msg.Position()
 		if !ml.InRect(x, y) {
 			break
 		}
@@ -1373,78 +1380,90 @@ func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command {
 				return nil
 			}
 		}
-	case *tview.KeyEvent:
+	case *tview.KeyMsg:
 		switch {
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollUp.Keybind):
-			ml.ScrollUp()
-			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollDown.Keybind):
-			ml.ScrollDown()
-			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollTop.Keybind):
-			ml.ScrollToStart()
-			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ScrollBottom.Keybind):
-			ml.ScrollToEnd()
-			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Cancel.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Cancel.Keybind):
 			ml.clearSelection()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectUp.Keybind):
-			ml.selectUp()
-			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectDown.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectUp.Keybind):
+			return ml.selectUp()
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectDown.Keybind):
 			ml.selectDown()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectTop.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectTop.Keybind):
 			ml.selectTop()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectBottom.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectBottom.Keybind):
 			ml.selectBottom()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.SelectReply.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.SelectReply.Keybind):
 			ml.selectReply()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankID.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankID.Keybind):
 			return ml.yankMessageID()
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankContent.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankContent.Keybind):
 			return ml.yankContent()
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.YankURL.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.YankURL.Keybind):
 			return ml.yankURL()
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Open.Keybind) || event.Key() == tcell.KeyEnter:
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Open.Keybind) || msg.Key() == tcell.KeyEnter:
 			ml.open()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.React.Keybind) || (event.Key() == tcell.KeyRune && event.Str() == "+"):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.React.Keybind) || (msg.Key() == tcell.KeyRune && msg.Str() == "+"):
 			ml.showReactionPicker()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
 			ml.confirmPin()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			ml.reply(false)
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
 			ml.reply(true)
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Edit.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Edit.Keybind):
 			ml.editSelectedMessage()
 			return nil
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.Delete.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Delete.Keybind):
 			return ml.deleteSelectedMessage()
-		case keybind.Matches(event, ml.cfg.Keybinds.MessagesList.DeleteConfirm.Keybind):
+		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.DeleteConfirm.Keybind):
 			ml.confirmDelete()
 			return nil
 		}
-		// Do not fall through to List defaults for unmatched keys.
+		return ml.Model.Update(msg)
+
+	case *olderMessagesLoadedMsg:
+		selectedChannel := ml.chatView.SelectedChannel()
+		if selectedChannel == nil || selectedChannel.ID != msg.ChannelID {
+			return nil
+		}
+		prevCursor := ml.Cursor()
+
+		// Defensive invalidation if Discord returns overlapping windows.
+		for _, message := range msg.Older {
+			delete(ml.itemByID, message.ID)
+		}
+		ml.messages = slices.Concat(msg.Older, ml.messages)
+		ml.invalidateRows()
+
+		switch {
+		case prevCursor == 0:
+			// Preserve "SelectUp at top" semantics: move to the next older message.
+			ml.SetCursor(len(msg.Older) - 1)
+		case prevCursor > 0:
+			// Keep selection on the same message after prepend shifts indexes.
+			ml.SetCursor(prevCursor + len(msg.Older))
+		default:
+			ml.SetCursor(prevCursor)
+		}
 		return nil
 	}
-	return ml.List.HandleEvent(event)
+	return ml.Model.Update(msg)
 }
 
-func (ml *messagesList) selectUp() {
+func (ml *messagesList) selectUp() tview.Cmd {
 	messages := ml.messages
 	if len(messages) == 0 {
-		return
+		return nil
 	}
 
 	cursor := ml.Cursor()
@@ -1454,14 +1473,11 @@ func (ml *messagesList) selectUp() {
 	case cursor > 0:
 		cursor--
 	case cursor == 0:
-		added := ml.prependOlderMessages()
-		if added == 0 {
-			return
-		}
-		cursor = added - 1
+		return ml.fetchOlderMessages()
 	}
 
 	ml.SetCursor(cursor)
+	return nil
 }
 
 func (ml *messagesList) selectDown() {
@@ -1516,38 +1532,48 @@ func (ml *messagesList) selectReply() {
 	}
 }
 
-func (ml *messagesList) prependOlderMessages() int {
+func (ml *messagesList) fetchOlderMessages() tview.Cmd {
 	selectedChannel := ml.chatView.SelectedChannel()
 	if selectedChannel == nil {
-		return 0
+		return nil
 	}
 
 	channelID := selectedChannel.ID
 	before := ml.messages[0].ID
 	limit := uint(ml.cfg.MessagesLimit)
-	messages, err := ml.chatView.state.MessagesBefore(channelID, before, limit)
-	if err != nil {
-		slog.Error("failed to fetch older messages", "err", err)
+	return func() tview.Msg {
+		messages, err := ml.chatView.state.MessagesBefore(channelID, before, limit)
+		if err != nil {
+			slog.Error("failed to fetch older messages", "err", err)
+			return nil
+		}
+		if len(messages) == 0 {
+			return nil
+		}
+
+		if guildID := selectedChannel.GuildID; guildID.IsValid() {
+			ml.requestGuildMembers(guildID, messages)
+		}
+
+		older := slices.Clone(messages)
+		slices.Reverse(older)
+		return newOlderMessagesLoadedMsg(channelID, older)
+	}
+}
+
+func (ml *messagesList) prependOlderMessages() int {
+	cmd := ml.fetchOlderMessages()
+	if cmd == nil {
 		return 0
 	}
-	if len(messages) == 0 {
+
+	msg, ok := cmd().(*olderMessagesLoadedMsg)
+	if !ok || msg == nil {
 		return 0
 	}
 
-	if guildID := selectedChannel.GuildID; guildID.IsValid() {
-		ml.requestGuildMembers(guildID, messages)
-	}
-
-	older := slices.Clone(messages)
-	slices.Reverse(older)
-
-	// Defensive invalidation if Discord returns overlapping windows.
-	for _, message := range older {
-		delete(ml.itemByID, message.ID)
-	}
-	ml.messages = slices.Concat(older, ml.messages)
-	ml.invalidateRows()
-	return len(messages)
+	ml.Update(msg)
+	return len(msg.Older)
 }
 
 func (ml *messagesList) jumpToMessage(channel discord.Channel, messageID discord.MessageID) error {
@@ -1584,14 +1610,14 @@ func (ml *messagesList) jumpToMessage(channel discord.Channel, messageID discord
 	return nil
 }
 
-func (ml *messagesList) yankMessageID() tview.Command {
+func (ml *messagesList) yankMessageID() tview.Cmd {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
 		return nil
 	}
 
-	return func() tcell.Event {
+	return func() tview.Msg {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.ID.String())); err != nil {
 			slog.Error("failed to copy message id", "err", err)
 		}
@@ -1599,14 +1625,14 @@ func (ml *messagesList) yankMessageID() tview.Command {
 	}
 }
 
-func (ml *messagesList) yankContent() tview.Command {
+func (ml *messagesList) yankContent() tview.Cmd {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
 		return nil
 	}
 
-	return func() tcell.Event {
+	return func() tview.Msg {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.Content)); err != nil {
 			slog.Error("failed to copy message content", "err", err)
 		}
@@ -1614,14 +1640,14 @@ func (ml *messagesList) yankContent() tview.Command {
 	}
 }
 
-func (ml *messagesList) yankURL() tview.Command {
+func (ml *messagesList) yankURL() tview.Cmd {
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
 		return nil
 	}
 
-	return func() tcell.Event {
+	return func() tview.Msg {
 		if err := clipboardWrite(clipboard.FmtText, []byte(msg.URL())); err != nil {
 			slog.Error("failed to copy message url", "err", err)
 		}
@@ -1744,13 +1770,13 @@ func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord
 
 	ml.chatView.
 		AddLayer(
-			ui.Centered(ml.attachmentsPicker, 0, 0),
-			layers.WithName(attachmentsListLayerName),
+			ui.Centered(ml.attachmentsPicker, ml.cfg.Picker.Width, ml.cfg.Picker.Height),
+			layers.WithName(attachmentsPickerLayerName),
 			layers.WithResize(true),
 			layers.WithVisible(true),
 			layers.WithOverlay(),
 		).
-		SendToFront(attachmentsListLayerName)
+		SendToFront(attachmentsPickerLayerName)
 	ml.chatView.app.SetFocus(ml.attachmentsPicker)
 }
 
@@ -1955,8 +1981,8 @@ func (ml *messagesList) pin() {
 func (ml *messagesList) confirmDelete() {
 	onChoice := func(choice string) {
 		if choice == "Yes" {
-			if command := ml.deleteSelectedMessage(); command != nil {
-				command()
+			if cmd := ml.deleteSelectedMessage(); cmd != nil {
+				cmd()
 			}
 		}
 	}
@@ -1968,14 +1994,14 @@ func (ml *messagesList) confirmDelete() {
 	)
 }
 
-func (ml *messagesList) deleteSelectedMessage() tview.Command {
+func (ml *messagesList) deleteSelectedMessage() tview.Cmd {
 	selectedMessage, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
 		return nil
 	}
 
-	return func() tcell.Event {
+	return func() tview.Msg {
 		if selectedMessage.GuildID.IsValid() {
 			me, _ := ml.chatView.state.Cabinet.Me()
 			if selectedMessage.Author.ID != me.ID && !ml.chatView.state.HasPermissions(selectedMessage.ChannelID, discord.PermissionManageMessages) {

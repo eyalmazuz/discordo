@@ -15,18 +15,7 @@ import (
 	"github.com/diamondburned/ningen/v3"
 )
 
-var (
-	cachedProfileImage = getCachedProfileImage
-	desktopNotify      = sendDesktopNotification
-	cacheDir           = consts.CacheDir
-	mkdirAll           = os.MkdirAll
-	statFile           = os.Stat
-	createFile         = os.Create
-	httpGet            = http.Get
-	copyToFile         = io.Copy
-)
-
-func Notify(state *ningen.State, message *gateway.MessageCreateEvent, cfg *config.Config) error {
+func Notify(state *ningen.State, message gateway.MessageCreateEvent, cfg *config.Config) error {
 	if !cfg.Notifications.Enabled || cfg.Status == discord.DoNotDisturbStatus {
 		return nil
 	}
@@ -71,13 +60,13 @@ func Notify(state *ningen.State, message *gateway.MessageCreateEvent, cfg *confi
 		hash = "default"
 	}
 
-	imagePath, err := cachedProfileImage(hash, message.Author.AvatarURLWithType(discord.PNGImage))
+	imagePath, err := getCachedProfileImage(hash, message.Author.AvatarURLWithType(discord.PNGImage))
 	if err != nil {
 		slog.Info("failed to get profile image from cache for notification", "err", err, "hash", hash)
 	}
 
 	shouldChime := cfg.Notifications.Sound.Enabled && (!cfg.Notifications.Sound.OnlyOnPing || mentions.Has(ningen.MessageMentions|ningen.MessageNotifies))
-	if err := desktopNotify(title, content, imagePath, shouldChime, cfg.Notifications.Duration); err != nil {
+	if err := sendDesktopNotification(title, content, imagePath, shouldChime, cfg.Notifications.Duration); err != nil {
 		return err
 	}
 
@@ -85,29 +74,29 @@ func Notify(state *ningen.State, message *gateway.MessageCreateEvent, cfg *confi
 }
 
 func getCachedProfileImage(avatarHash discord.Hash, url string) (string, error) {
-	path := filepath.Join(cacheDir(), "avatars")
-	if err := mkdirAll(path, os.ModePerm); err != nil {
+	path := filepath.Join(consts.CacheDir(), "avatars")
+	if err := os.MkdirAll(path, os.ModePerm); err != nil {
 		return "", err
 	}
 
 	path = filepath.Join(path, avatarHash+".png")
-	if _, err := statFile(path); err == nil {
+	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
 
-	file, err := createFile(path)
+	file, err := os.Create(path)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 
-	resp, err := httpGet(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	if _, err := copyToFile(file, resp.Body); err != nil {
+	if _, err := io.Copy(file, resp.Body); err != nil {
 		return "", err
 	}
 
