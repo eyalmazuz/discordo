@@ -54,6 +54,8 @@ type messageInput struct {
 	typingTimer   *time.Timer
 }
 
+type tabSuggestMsg struct{ tcell.EventTime }
+
 var _ help.KeyMap = (*messageInput)(nil)
 
 func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
@@ -106,6 +108,8 @@ func (mi *messageInput) stopTypingTimer() {
 func (mi *messageInput) Update(msg tview.Msg) tview.Cmd {
 	handler := mi.TextArea.Update
 	switch msg := msg.(type) {
+	case *tabSuggestMsg:
+		return mi.tabSuggest()
 	case *tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Paste.Keybind):
@@ -113,7 +117,7 @@ func (mi *messageInput) Update(msg tview.Msg) tview.Cmd {
 			return handler(tcell.NewEventKey(tcell.KeyCtrlV, "", tcell.ModNone))
 		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Send.Keybind):
 			if mi.chat.GetVisible(mentionsListLayerName) {
-				mi.tabComplete()
+				return mi.tabComplete()
 			} else {
 				mi.send()
 			}
@@ -149,8 +153,7 @@ func (mi *messageInput) Update(msg tview.Msg) tview.Cmd {
 			}
 			return tview.Batch(cmds...)
 		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.TabComplete.Keybind):
-			go mi.chat.app.QueueUpdateDraw(func() { mi.tabComplete() })
-			return nil
+			return mi.tabComplete()
 		case keybind.Matches(msg, mi.cfg.Keybinds.MessageInput.Undo.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyCtrlZ, "", tcell.ModNone))
 		}
@@ -178,7 +181,8 @@ func (mi *messageInput) Update(msg tview.Msg) tview.Cmd {
 				}
 			}
 
-			go mi.chat.app.QueueUpdateDraw(func() { mi.tabSuggestion() })
+			// Apply key edits first, then recompute autocomplete through Msg/Cmd.
+			return tview.Batch(handler(msg), mi.tabSuggest())
 		}
 	}
 	return handler(msg)
@@ -319,19 +323,19 @@ func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
 	})
 }
 
-func (mi *messageInput) tabComplete() {
+func (mi *messageInput) tabComplete() tview.Cmd {
 	posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
 	})
 	if r != '@' {
 		mi.stopTabCompletion(nil)
-		return
+		return nil
 	}
 	pos := posEnd - (len(name) + 1)
 
 	selected := mi.chat.SelectedChannel()
 	if selected == nil {
-		return
+		return nil
 	}
 	gID := selected.GuildID
 
@@ -343,45 +347,47 @@ func (mi *messageInput) tabComplete() {
 				mi.Replace(pos, posEnd, "@"+users[res[0].Index].Username+" ")
 			}
 		} else {
-			mi.searchMember(gID, name)
+			cmd := mi.searchMember(gID, name)
 			members, err := mi.chat.state.Cabinet.Members(gID)
 			if err != nil {
 				slog.Error("failed to get members from state", "guild_id", gID, "err", err)
-				return
+				return cmd
 			}
 
 			res := fuzzy.FindFrom(name, memberList(members))
 			for _, r := range res {
 				if channelHasUser(mi.chat.state, selected.ID, members[r.Index].User.ID) {
 					mi.Replace(pos, posEnd, "@"+members[r.Index].User.Username+" ")
-					return
+					return cmd
 				}
 			}
+			return cmd
 		}
-		return
+		return nil
 	}
 	if mi.mentionsList.itemCount() == 0 {
-		return
+		return nil
 	}
 	name, ok := mi.mentionsList.selectedInsertText()
 	if !ok {
-		return
+		return nil
 	}
 	mi.Replace(pos, posEnd, "@"+name+" ")
 	mi.stopTabCompletion(nil)
+	return nil
 }
 
-func (mi *messageInput) tabSuggestion() {
+func (mi *messageInput) tabSuggest() tview.Cmd {
 	_, name, r := mi.GetWordUnderCursor(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
 	})
 	if r != '@' {
 		mi.stopTabCompletion(nil)
-		return
+		return nil
 	}
 	selected := mi.chat.SelectedChannel()
 	if selected == nil {
-		return
+		return nil
 	}
 	gID := selected.GuildID
 	cID := selected.ID
@@ -401,7 +407,7 @@ func (mi *messageInput) tabSuggestion() {
 		if name == "" { // show recent messages' authors
 			msgs, err := mi.chat.state.Cabinet.Messages(cID)
 			if err != nil {
-				return
+				return nil
 			}
 			for _, m := range msgs {
 				if _, ok := shown[m.Author.Username]; ok {
@@ -422,7 +428,7 @@ func (mi *messageInput) tabSuggestion() {
 	} else if name == "" { // show recent messages' authors
 		msgs, err := mi.chat.state.Cabinet.Messages(cID)
 		if err != nil {
-			return
+			return nil
 		}
 		for _, m := range msgs {
 			if _, ok := shown[m.Author.Username]; ok {
@@ -437,11 +443,11 @@ func (mi *messageInput) tabSuggestion() {
 			}
 		}
 	} else {
-		mi.searchMember(gID, name)
+		searchCmd := mi.searchMember(gID, name)
 		mems, err := mi.chat.state.Cabinet.Members(gID)
 		if err != nil {
 			slog.Error("fetching members failed", "err", err)
-			return
+			return searchCmd
 		}
 		res := fuzzy.FindFrom(name, memberList(mems))
 		if len(res) > int(mi.cfg.AutocompleteLimit) {
@@ -453,15 +459,20 @@ func (mi *messageInput) tabSuggestion() {
 				break
 			}
 		}
+		if mi.mentionsList.itemCount() == 0 {
+			mi.stopTabCompletion(nil)
+			return searchCmd
+		}
 	}
 
 	if mi.mentionsList.itemCount() == 0 {
 		mi.stopTabCompletion(nil)
-		return
+		return nil
 	}
 
 	mi.mentionsList.rebuild()
 	mi.showMentionList()
+	return nil
 }
 
 type memberList []discord.Member
@@ -493,10 +504,12 @@ func channelHasUser(state *ningen.State, channelID discord.ChannelID, userID dis
 	return perms.Has(discord.PermissionViewChannel)
 }
 
-func (mi *messageInput) searchMember(gID discord.GuildID, name string) {
+// searchMember performs member discovery in a command goroutine.
+// It emits a follow-up suggestion message once results are loaded.
+func (mi *messageInput) searchMember(gID discord.GuildID, name string) tview.Cmd {
 	key := gID.String() + " " + name
 	if mi.cache.Exists(key) {
-		return
+		return nil
 	}
 	// If searching for "ab" returns less than SearchLimit,
 	// then "abc" would not return anything new because we already searched
@@ -505,23 +518,23 @@ func (mi *messageInput) searchMember(gID discord.GuildID, name string) {
 	if k := key[:len(key)-1]; mi.cache.Exists(k) {
 		if c := mi.cache.Get(k); c < mi.chat.state.MemberState.SearchLimit {
 			mi.cache.Create(key, c)
-			return
+			return nil
 		}
 	}
 
 	// Rate limit on our side because we can't distinguish between a successful search and SearchMember not doing anything because of its internal rate limit that we can't detect
 	if mi.lastSearch.Add(mi.chat.state.MemberState.SearchFrequency).After(time.Now()) {
-		return
+		return nil
 	}
 
 	mi.lastSearch = time.Now()
-	go func() {
+	return func() tview.Msg {
 		mi.chat.messagesList.waitForChunkEvent()
 		mi.chat.messagesList.setFetchingChunk(true, 0)
 		mi.chat.state.MemberState.SearchMember(gID, name)
 		mi.cache.Create(key, mi.chat.messagesList.waitForChunkEvent())
-		mi.chat.app.QueueUpdateDraw(func() { mi.tabSuggestion() })
-	}()
+		return &tabSuggestMsg{}
+	}
 }
 
 func (mi *messageInput) showMentionList() {

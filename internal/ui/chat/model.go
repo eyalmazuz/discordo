@@ -359,6 +359,10 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			m.HideLayer(msg.name)
 		}
 		return nil
+	case *tabSuggestMsg:
+		// Member search completes in a command goroutine; resume suggestion
+		// generation on the update loop to keep UI mutations serialized.
+		return m.messageInput.Update(msg)
 	}
 	return m.Layers.Update(msg)
 }
