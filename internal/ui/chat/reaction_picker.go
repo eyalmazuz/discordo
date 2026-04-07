@@ -127,7 +127,7 @@ func (rp *reactionPicker) close() tview.Cmd {
 	clear(rp.emoteItemByKey)
 	rp.chatView.RemoveLayer(reactionPickerLayerName)
 	if rp.messagesList != nil {
-		rp.messagesList.pendingFullClear = true
+		rp.messagesList.kittyNeedsFullClear = true
 	}
 	return tview.SetFocus(rp.messagesList)
 }

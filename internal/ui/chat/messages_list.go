@@ -100,7 +100,6 @@ type messagesList struct {
 	kittyNeedsFullClear bool
 	kittySuspended      bool
 	cellW, cellH        int      // cached cell pixel dimensions for Kitty mode
-	pendingFullClear    bool     // deferred to AfterDraw
 	pendingDeletes      []uint32 // kitty IDs to delete in AfterDraw
 
 	fetchingOlder bool
@@ -205,18 +204,26 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 			// Full clear only on channel switch / reset.
 			if ml.kittyNeedsFullClear {
 				ml.kittyNeedsFullClear = false
-				ml.pendingFullClear = true
 				for _, item := range ml.imageItemByKey {
 					item.unlockRegion(screen)
 					item.invalidateKittyPlacement()
+					if item.kittyID > 0 {
+						ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+					}
 				}
 				for _, item := range ml.emoteItemByKey {
 					item.unlockRegion(screen)
 					item.invalidateKittyPlacement()
+					if item.kittyID > 0 {
+						ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+					}
 				}
 				for _, item := range ml.stickerItemByKey {
 					item.unlockRegion(screen)
 					item.invalidateKittyPlacement()
+					if item.kittyID > 0 {
+						ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+					}
 				}
 				clear(ml.imageItemByKey)
 				clear(ml.emoteItemByKey)
@@ -244,7 +251,7 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 	ml.scanAndDrawEmotes(screen)
 
 	// Collect off-screen images for deletion in AfterDraw.
-	if ml.cfg.InlineImages.Enabled && ml.currentUseKitty() {
+	if ml.cfg.InlineImages.Enabled && ml.useKitty {
 		for _, item := range ml.imageItemByKey {
 			if !item.drawnThisFrame && item.kittyPlaced {
 				item.unlockRegion(screen)
@@ -339,15 +346,8 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 			_ = imgpkg.DeleteKittyByID(tty, id)
 		}
 		ml.pendingDeletes = ml.pendingDeletes[:0]
-		ml.pendingFullClear = false
 		fmt.Fprint(tty, "\x1b8")
 		return
-	}
-
-	// Full clear: delete only images owned by this component.
-	if ml.pendingFullClear {
-		ml.deleteOwnedKittyImages(tty)
-		ml.pendingFullClear = false
 	}
 
 	// Delete off-screen images.
@@ -369,27 +369,6 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 
 	// Restore cursor position.
 	fmt.Fprint(tty, "\x1b8")
-}
-
-// deleteOwnedKittyImages deletes all Kitty images that belong to this
-// messagesList (images, emotes, stickers) without affecting images owned by
-// other components such as the mentionsList or reactionPicker.
-func (ml *messagesList) deleteOwnedKittyImages(tty io.Writer) {
-	for _, item := range ml.imageItemByKey {
-		if item.kittyID > 0 {
-			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
-		}
-	}
-	for _, item := range ml.emoteItemByKey {
-		if item.kittyID > 0 {
-			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
-		}
-	}
-	for _, item := range ml.stickerItemByKey {
-		if item.kittyID > 0 {
-			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
-		}
-	}
 }
 
 func (ml *messagesList) currentUseKitty() bool {

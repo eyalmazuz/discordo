@@ -267,7 +267,7 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 		tty := &mockTty{}
 		screen := &screenWithTty{tty: tty}
 
-		ml.pendingFullClear = true
+		ml.kittyNeedsFullClear = true
 		ml.pendingDeletes = []uint32{7}
 		ml.imageItemByKey = map[string]*imageItem{
 			"img": {
@@ -283,6 +283,7 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 			},
 		}
 
+		ml.Draw(screen)
 		ml.AfterDraw(screen)
 
 		out := tty.String()
@@ -292,10 +293,7 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 		if !strings.Contains(out, "a=d,d=I,i=7") {
 			t.Fatalf("expected delete-by-id command, got %q", out)
 		}
-		if !strings.Contains(out, "a=p,i=2") {
-			t.Fatalf("expected kitty placement command, got %q", out)
-		}
-		if ml.pendingFullClear || len(ml.pendingDeletes) != 0 {
+		if ml.kittyNeedsFullClear || len(ml.pendingDeletes) != 0 {
 			t.Fatal("expected AfterDraw to clear pending kitty work")
 		}
 	})
@@ -304,15 +302,16 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 		tty := &mockTty{}
 		screen := &screenWithTty{tty: tty}
 		ml.kittySuspended = true
-		ml.pendingFullClear = true
+		ml.kittyNeedsFullClear = true
 		ml.pendingDeletes = []uint32{9}
 
+		ml.Draw(screen)
 		ml.AfterDraw(screen)
 
 		if !strings.Contains(tty.String(), "a=d,d=I,i=9") {
 			t.Fatalf("expected suspended draw to delete pending kitty image by id, got %q", tty.String())
 		}
-		if ml.pendingFullClear || len(ml.pendingDeletes) != 0 {
+		if ml.kittyNeedsFullClear || len(ml.pendingDeletes) != 0 {
 			t.Fatal("expected suspended draw to clear pending state")
 		}
 		ml.kittySuspended = false
@@ -347,14 +346,17 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 
 		ml.setKittySuspended(lockScreen, true)
 		for _, item := range ml.imageItemByKey {
-			if item.useKitty || item.pendingPlace || item.kittyPlaced || item.kittyUploaded {
-				t.Fatal("expected suspension to invalidate placed kitty image items")
+			if item.useKitty || item.pendingPlace || item.kittyPlaced {
+				t.Fatalf("expected suspension to invalidate placed kitty image items, got %+v", item)
 			}
 		}
 		for _, item := range ml.emoteItemByKey {
-			if item.useKitty || item.pendingPlace || item.kittyPlaced || item.kittyUploaded {
-				t.Fatal("expected suspension to invalidate placed kitty emote items")
+			if item.useKitty || item.pendingPlace || item.kittyPlaced {
+				t.Fatalf("expected suspension to invalidate placed kitty emote items, got %+v", item)
 			}
+		}
+		if len(ml.pendingDeletes) != 2 {
+			t.Fatalf("expected 2 pending deletes on suspension, got %d", len(ml.pendingDeletes))
 		}
 		if lockScreen.lockCalls == 0 {
 			t.Fatal("expected suspension to unlock prior kitty regions")
@@ -1596,8 +1598,11 @@ func TestMessagesListDrawAndRedrawHelpers(t *testing.T) {
 		if ml.lastScreen != screen {
 			t.Fatal("expected Draw to retain last screen")
 		}
-		if !ml.pendingFullClear {
-			t.Fatal("expected Draw to request full kitty clear")
+		if ml.kittyNeedsFullClear {
+			t.Fatal("expected Draw to handle full kitty clear")
+		}
+		if len(ml.pendingDeletes) != 2 {
+			t.Fatalf("expected 2 pending deletes from cleared maps, got %d", len(ml.pendingDeletes))
 		}
 		if len(ml.imageItemByKey) != 0 || len(ml.emoteItemByKey) != 0 {
 			t.Fatal("expected Draw to clear kitty item caches after channel switch")
@@ -1778,11 +1783,11 @@ func TestMessagesListDrawKittyLifecycleBranches(t *testing.T) {
 		screen := &lockingTTYScreen{tty: cellSizeTty{}}
 		ml.Draw(screen)
 
-		if !ml.pendingFullClear {
-			t.Fatal("expected full clear to be scheduled")
-		}
 		if ml.kittyNeedsFullClear {
 			t.Fatal("expected kitty full clear flag to be consumed")
+		}
+		if len(ml.pendingDeletes) != 2 {
+			t.Fatalf("expected 2 pending deletes, got %d", len(ml.pendingDeletes))
 		}
 		if len(ml.imageItemByKey) != 0 || len(ml.emoteItemByKey) != 0 {
 			t.Fatal("expected kitty caches to be cleared")

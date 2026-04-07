@@ -42,7 +42,7 @@ func TestMessagesList_HandleEvent_PinKeyOpensConfirmationDialog(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	executeModelCommand(m, ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
@@ -77,7 +77,7 @@ func TestMessagesList_PinConfirmation_TabThenEnterCancels(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	executeModelCommand(m, ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
@@ -115,7 +115,7 @@ func TestMessagesList_PinConfirmation_EnterPinsSelectedMessage(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	executeModelCommand(m, ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}

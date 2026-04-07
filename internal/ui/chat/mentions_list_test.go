@@ -101,6 +101,7 @@ func TestMentionsListRebuildPreservesStyling(t *testing.T) {
 func TestMentionsListEmojiPreview(t *testing.T) {
 	chat := newMockChatModel()
 	chat.cfg.InlineImages.Enabled = true
+	chat.cfg.InlineImages.Renderer = "kitty"
 	m := newMentionsList(chat.cfg, chat)
 	url := "https://cdn.discordapp.com/emojis/123.png"
 	m.append(mentionsListItem{
@@ -126,6 +127,7 @@ func TestMentionsListEmojiPreview(t *testing.T) {
 func TestMentionsListScanAndDrawEmotesRequestsCache(t *testing.T) {
 	chat := newTestModel()
 	chat.cfg.InlineImages.Enabled = true
+	chat.cfg.InlineImages.Renderer = "kitty"
 	m := newMentionsList(chat.cfg, chat)
 	m.cfg.InlineImages.Enabled = true
 	m.SetRect(0, 0, 20, 3)

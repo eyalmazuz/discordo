@@ -62,7 +62,7 @@ func TestMessagesListUpdateReactKeyOpensPicker(t *testing.T) {
 	})
 	m.messagesList.SetCursor(0)
 
-	m.messagesList.Update(tcell.NewEventKey(tcell.KeyRune, "+", tcell.ModNone))
+	executeModelCommand(m, m.messagesList.Update(tcell.NewEventKey(tcell.KeyRune, "+", tcell.ModNone)))
 
 	if !m.HasLayer(reactionPickerLayerName) {
 		t.Fatal("expected reaction picker layer to be visible")
@@ -133,7 +133,7 @@ func TestMessagesListUpdateEnterKey(t *testing.T) {
 		cfg:   cfg,
 	}
 
-	ml.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	execCmdForTest(nil, ml.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 }
 
 func joinedLineText(line tview.Line) string {
