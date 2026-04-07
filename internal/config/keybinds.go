@@ -166,7 +166,7 @@ func defaultGuildsTreeKeybinds() GuildsTreeKeybinds {
 	return GuildsTreeKeybinds{
 		NavigationKeybinds: defaultNavigationKeybinds(),
 		SelectCurrent:      newKeybind("enter", "sel"),
-		ToggleExpand:       newKeybind(" ", "expand"),
+		ToggleExpand:       newKeybind("space", "expand"),
 		YankID:             newKeybind("i", "copy id"),
 		CollapseParentNode: newKeybind("-", "collapse"),
 		MoveToParentNode:   newKeybind("p", "parent"),

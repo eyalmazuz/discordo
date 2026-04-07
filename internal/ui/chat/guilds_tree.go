@@ -77,10 +77,15 @@ func (gt *guildsTree) ShortHelp() []keybind.Keybind {
 	selectDesc := selectHelp.Desc
 	if node := gt.GetCurrentNode(); node != nil {
 		if len(node.GetChildren()) > 0 {
-			if node.IsExpanded() {
-				selectDesc = "collapse"
-			} else {
-				selectDesc = "expand"
+			switch node.GetReference().(type) {
+			case discord.ChannelID:
+				selectDesc = "sel"
+			default:
+				if node.IsExpanded() {
+					selectDesc = "collapse"
+				} else {
+					selectDesc = "expand"
+				}
 			}
 		} else {
 			switch node.GetReference().(type) {
@@ -94,6 +99,16 @@ func (gt *guildsTree) ShortHelp() []keybind.Keybind {
 	collapseParent.SetHelp(collapseHelp.Key, "collapse parent")
 
 	shortHelp := []keybind.Keybind{cfg.Up.Keybind, cfg.Down.Keybind, selectCurrent}
+	if node := gt.GetCurrentNode(); node != nil && len(node.GetChildren()) > 0 {
+		toggleExpand := cfg.ToggleExpand.Keybind
+		toggleHelp := toggleExpand.Help()
+		if node.IsExpanded() {
+			toggleExpand.SetHelp(toggleHelp.Key, "collapse")
+		} else {
+			toggleExpand.SetHelp(toggleHelp.Key, "expand")
+		}
+		shortHelp = append(shortHelp, toggleExpand)
+	}
 	if gt.canCollapseParent(gt.GetCurrentNode()) {
 		shortHelp = append(shortHelp, collapseParent)
 	}
@@ -108,10 +123,15 @@ func (gt *guildsTree) FullHelp() [][]keybind.Keybind {
 	selectDesc := selectHelp.Desc
 	if node := gt.GetCurrentNode(); node != nil {
 		if len(node.GetChildren()) > 0 {
-			if node.IsExpanded() {
-				selectDesc = "collapse"
-			} else {
-				selectDesc = "expand"
+			switch node.GetReference().(type) {
+			case discord.ChannelID:
+				selectDesc = "sel"
+			default:
+				if node.IsExpanded() {
+					selectDesc = "collapse"
+				} else {
+					selectDesc = "expand"
+				}
 			}
 		} else {
 			switch node.GetReference().(type) {
@@ -124,7 +144,7 @@ func (gt *guildsTree) FullHelp() [][]keybind.Keybind {
 	collapseHelp := collapseParent.Help()
 	collapseParent.SetHelp(collapseHelp.Key, "collapse parent")
 
-	actions := []keybind.Keybind{selectCurrent, cfg.MoveToParentNode.Keybind}
+	actions := []keybind.Keybind{selectCurrent, cfg.ToggleExpand.Keybind, cfg.MoveToParentNode.Keybind}
 	if gt.canCollapseParent(gt.GetCurrentNode()) {
 		actions = append(actions, collapseParent)
 	}
@@ -471,8 +491,13 @@ func (gt *guildsTree) createChannelNodes(node *tview.TreeNode, channels []discor
 
 func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 	if len(node.GetChildren()) != 0 {
-		node.SetExpanded(!node.IsExpanded())
-		return nil
+		switch node.GetReference().(type) {
+		case discord.ChannelID:
+			// Fall through to channel-loading logic below.
+		default:
+			node.SetExpanded(!node.IsExpanded())
+			return nil
+		}
 	}
 
 	switch ref := node.GetReference().(type) {
@@ -496,6 +521,11 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 			return nil
 		}
 
+		if channel.Type == discord.GuildCategory {
+			node.SetExpanded(!node.IsExpanded())
+			return nil
+		}
+
 		if channel.GuildID.IsValid() && (channel.Type == discord.GuildText || channel.Type == discord.GuildAnnouncement || channel.Type == discord.GuildForum) {
 			channels, err := gt.chat.state.Cabinet.Channels(channel.GuildID)
 			if err == nil {
@@ -510,9 +540,8 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 						}
 					}
 				}
-				if len(node.GetChildren()) > 0 {
-					node.Expand()
-				}
+				// Threads are loaded as children but not auto-expanded;
+				// use space to expand/collapse the thread list.
 			}
 		}
 
@@ -611,7 +640,11 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		handler := gt.TreeView.Update
 		switch {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.CollapseParentNode.Keybind):
-			gt.collapseParentNode(gt.GetCurrentNode())
+			if node := gt.GetCurrentNode(); node != nil && node.IsExpanded() && len(node.GetChildren()) > 0 {
+				node.Collapse()
+			} else {
+				gt.collapseParentNode(gt.GetCurrentNode())
+			}
 			return nil
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.MoveToParentNode.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone))
@@ -624,6 +657,15 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 			return nil
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.Bottom.Keybind):
 			gt.Move(gt.GetRowCount())
+			return nil
+		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.ToggleExpand.Keybind):
+			if node := gt.GetCurrentNode(); node != nil {
+				if len(node.GetChildren()) == 0 {
+					// No children loaded yet — trigger onSelected to load them.
+					return gt.onSelected(node)
+				}
+				node.SetExpanded(!node.IsExpanded())
+			}
 			return nil
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.SelectCurrent.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
