@@ -965,7 +965,8 @@ func (ml *messagesList) renderContentLines(message discord.Message, baseStyle tc
 func (ml *messagesList) renderContentLinesWithMarkdown(message discord.Message, baseStyle tcell.Style, forceMarkdown bool, hideSpoilers bool) ([]tview.Line, ast.Node) {
 	// Keep one rendering path for both normal messages and embed fragments so we preserve mention/link parsing behavior consistently across both.
 	if forceMarkdown || ml.chatView.cfg.Markdown.Enabled {
-		c := []byte(message.Content)
+		content := strings.ReplaceAll(message.Content, "||", "\uFEFF||\uFEFF")
+		c := []byte(content)
 		root := discordmd.ParseWithMessage(c, *ml.chatView.state.Cabinet, &message, false)
 		renderer := markdown.NewRenderer(ml.chatView.cfg)
 		renderer.HideSpoilers = hideSpoilers
@@ -973,7 +974,15 @@ func (ml *messagesList) renderContentLinesWithMarkdown(message discord.Message, 
 	}
 
 	b := tview.NewLineBuilder()
-	b.Write(message.Content, baseStyle)
+	if hideSpoilers {
+		var sb strings.Builder
+		for range message.Content {
+			sb.WriteString("█")
+		}
+		b.Write(sb.String(), baseStyle)
+	} else {
+		b.Write(message.Content, baseStyle)
+	}
 	return b.Finish(), nil
 }
 
