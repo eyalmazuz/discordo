@@ -25,15 +25,15 @@ func TestModel_HandleEvent_Submission(t *testing.T) {
 	m.GetFormItem(0).(*tview.InputField).SetText(token)
 
 	// Simulate submitting the form
-	cmd := m.HandleEvent(&tview.FormSubmitEvent{})
+	cmd := m.Update(&tview.FormSubmitMsg{})
 	if cmd == nil {
-		t.Errorf("Expected a command for FormSubmitEvent, got nil")
+		t.Errorf("Expected a command for FormSubmitMsg, got nil")
 	}
 
 	// Execute command
 	event := cmd()
-	if e, ok := event.(*TokenEvent); !ok || e.Token != token {
-		t.Errorf("Expected TokenEvent with token, got %v", event)
+	if e, ok := event.(*TokenMsg); !ok || e.Token != token {
+		t.Errorf("Expected TokenMsg with token, got %v", event)
 	}
 }
 
@@ -48,7 +48,7 @@ func TestModel_HandleEvent_EmptySubmission(t *testing.T) {
 	m := NewModel()
 	m.GetFormItem(0).(*tview.InputField).SetText("")
 
-	cmd := m.HandleEvent(&tview.FormSubmitEvent{})
+	cmd := m.Update(&tview.FormSubmitMsg{})
 	if cmd != nil {
 		t.Errorf("Expected nil command for empty token submission, got %v", cmd)
 	}
@@ -56,18 +56,18 @@ func TestModel_HandleEvent_EmptySubmission(t *testing.T) {
 
 func TestModel_HandleEvent_Fallback(t *testing.T) {
 	m := NewModel()
-	// Test that it falls back to tview.Form.HandleEvent
+	// Test that it falls back to tview.Form.Update
 	// For example, hitting Enter on a button should trigger something or return a command
 	event := tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)
 	// We don't necessarily care about the return value, just that it doesn't crash
 	// and follows the expected path.
-	m.HandleEvent(event)
+	m.Update(event)
 }
 
 func TestTokenCommand(t *testing.T) {
 	cmd := tokenCommand("cmd-token")
 	event := cmd()
-	if e, ok := event.(*TokenEvent); !ok || e.Token != "cmd-token" {
-		t.Errorf("Expected TokenEvent with token, got %v", event)
+	if e, ok := event.(*TokenMsg); !ok || e.Token != "cmd-token" {
+		t.Errorf("Expected TokenMsg with token, got %v", event)
 	}
 }

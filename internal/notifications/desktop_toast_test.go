@@ -19,7 +19,7 @@ func TestSendDesktopNotification(t *testing.T) {
 
 	t.Run("notify error", func(t *testing.T) {
 		beeepNotify = func(string, string, any) error { return errors.New("notify") }
-		if err := sendDesktopNotification("title", "message", "image", false, 0); err == nil {
+		if err := sendDesktopNotificationImpl("title", "message", "image", false, 0); err == nil {
 			t.Fatal("expected notify error")
 		}
 	})
@@ -36,7 +36,7 @@ func TestSendDesktopNotification(t *testing.T) {
 			beepCalled = true
 			return nil
 		}
-		if err := sendDesktopNotification("title", "message", "image", false, 12); err != nil {
+		if err := sendDesktopNotificationImpl("title", "message", "image", false, 12); err != nil {
 			t.Fatalf("sendDesktopNotification returned error: %v", err)
 		}
 		if beepCalled {
@@ -52,7 +52,7 @@ func TestSendDesktopNotification(t *testing.T) {
 			gotFreq, gotDuration = freq, duration
 			return nil
 		}
-		if err := sendDesktopNotification("title", "message", "image", true, 34); err != nil {
+		if err := sendDesktopNotificationImpl("title", "message", "image", true, 34); err != nil {
 			t.Fatalf("sendDesktopNotification returned error: %v", err)
 		}
 		if gotFreq != beeep.DefaultFreq || gotDuration != 34 {
@@ -60,7 +60,7 @@ func TestSendDesktopNotification(t *testing.T) {
 		}
 
 		beeepBeep = func(float64, int) error { return errors.New("beep") }
-		if err := sendDesktopNotification("title", "message", "image", true, 34); err == nil {
+		if err := sendDesktopNotificationImpl("title", "message", "image", true, 34); err == nil {
 			t.Fatal("expected beep error")
 		}
 	})

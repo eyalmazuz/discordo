@@ -1,12 +1,16 @@
 package chat
 
 import (
-	"strings"
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
+	"net/http"
 	"testing"
+	"time"
 
-	"github.com/ayn2op/discordo/internal/markdown"
-	"github.com/eyalmazuz/tview"
-	"github.com/diamondburned/arikawa/v3/discord"
+	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -26,33 +30,33 @@ func TestMentionsListHelpers(t *testing.T) {
 	m.append(mentionsListItem{insertText: "beta", displayText: "BetaUser", style: tcell.StyleDefault})
 	m.rebuild()
 
-	if item := m.Builder(-1, 0); item != nil {
+	builder := m.Builder()
+	if item := builder(-1, 0); item != nil {
 		t.Fatal("expected negative builder index to return nil")
 	}
-	selectedItem, ok := m.Builder(0, 0).(*tview.TextView)
+
+	selectedItem, ok := builder(0, 0).(*mentionsListRowItem)
 	if !ok {
-		t.Fatalf("expected selected builder item to be a text view, got %T", m.Builder(0, 0))
+		t.Fatalf("expected selected builder item to be a row item, got %T", builder(0, 0))
 	}
-	selectedLines := selectedItem.GetLines()
-	if len(selectedLines) != 1 || len(selectedLines[0]) != 1 || selectedLines[0][0].Text != "Alpha" {
-		t.Fatalf("expected selected builder item to render Alpha, got %#v", selectedLines)
+	if selectedItem.item.displayText != "Alpha" {
+		t.Fatalf("expected selected row item to carry Alpha, got %#v", selectedItem.item)
 	}
-	if attrs := selectedLines[0][0].Style.GetAttributes(); attrs&tcell.AttrReverse == 0 {
-		t.Fatal("expected selected builder item style to be reversed")
+	if attrs := selectedItem.style.GetAttributes(); attrs&tcell.AttrReverse == 0 {
+		t.Fatal("expected selected row item style to be reversed")
 	}
 
-	unselectedItem, ok := m.Builder(1, 0).(*tview.TextView)
+	unselectedItem, ok := builder(1, 0).(*mentionsListRowItem)
 	if !ok {
-		t.Fatalf("expected unselected builder item to be a text view, got %T", m.Builder(1, 0))
+		t.Fatalf("expected unselected builder item to be a row item, got %T", builder(1, 0))
 	}
-	unselectedLines := unselectedItem.GetLines()
-	if len(unselectedLines) != 1 || len(unselectedLines[0]) != 1 || unselectedLines[0][0].Text != "BetaUser" {
-		t.Fatalf("expected unselected builder item to render BetaUser, got %#v", unselectedLines)
+	if unselectedItem.item.displayText != "BetaUser" {
+		t.Fatalf("expected unselected row item to carry BetaUser, got %#v", unselectedItem.item)
 	}
-	if attrs := unselectedLines[0][0].Style.GetAttributes(); attrs&tcell.AttrReverse != 0 {
-		t.Fatal("expected unselected builder item style to remain non-reversed")
+	if attrs := unselectedItem.style.GetAttributes(); attrs&tcell.AttrReverse != 0 {
+		t.Fatal("expected unselected row item style to remain non-reversed")
 	}
-	if item := m.Builder(2, 0); item != nil {
+	if item := builder(2, 0); item != nil {
 		t.Fatal("expected out-of-range builder index to return nil")
 	}
 
@@ -75,196 +79,90 @@ func TestMentionsListHelpers(t *testing.T) {
 	}
 }
 
-func TestMentionsListAppendEmojiUsesEmojiPreviewLine(t *testing.T) {
+func TestMentionsListRebuildPreservesStyling(t *testing.T) {
 	chat := newMockChatModel()
+	baseStyle := tcell.StyleDefault.Bold(true)
 	m := newMentionsList(chat.cfg, chat)
-
-	emoji := discord.Emoji{ID: 123456, Name: "kekw"}
-	m.appendEmoji(emoji)
+	m.append(mentionsListItem{insertText: "gamma", displayText: "Gamma", style: baseStyle})
 	m.rebuild()
 
-	item, ok := m.Builder(0, 0).(*tview.TextView)
+	item, ok := m.Builder()(0, 1).(*mentionsListRowItem)
 	if !ok {
-		t.Fatalf("expected emoji builder item to be a text view, got %T", m.Builder(0, 0))
+		t.Fatalf("expected builder item to be a row item, got %T", m.Builder()(0, 1))
 	}
-	lines := item.GetLines()
-	if len(lines) != 1 || len(lines[0]) != 2 {
-		t.Fatalf("expected emoji suggestion to render preview and label, got %#v", lines)
+	if attrs := item.style.GetAttributes(); attrs&tcell.AttrBold == 0 {
+		t.Fatal("expected mention row style to preserve bold attribute")
 	}
-	if got := lines[0][0].Text; got != markdown.CustomEmojiText("kekw", chat.cfg.InlineImages.Enabled) {
-		t.Fatalf("expected emoji preview text %q, got %q", markdown.CustomEmojiText("kekw", chat.cfg.InlineImages.Enabled), got)
-	}
-	if _, url := lines[0][0].Style.GetUrl(); url != emoji.EmojiURL() {
-		t.Fatalf("expected emoji preview URL %q, got %q", emoji.EmojiURL(), url)
-	}
-	if got := lines[0][1].Text; got != " kekw" {
-		t.Fatalf("expected emoji label %q, got %q", " kekw", got)
-	}
-	if got := m.maxDisplayWidth(); got < len(" kekw")+inlineEmoteWidth {
-		t.Fatalf("expected emoji width to include preview and label, got %d", got)
+	if attrs := item.style.GetAttributes(); attrs&tcell.AttrReverse != 0 {
+		t.Fatal("expected non-selected mention row to avoid reverse style")
 	}
 }
 
-func TestMentionsListClearQueuesKittyDeletesForAutocompleteEmoji(t *testing.T) {
+func TestMentionsListEmojiPreview(t *testing.T) {
 	chat := newMockChatModel()
 	chat.cfg.InlineImages.Enabled = true
-	chat.messagesList.useKitty = true
-
 	m := newMentionsList(chat.cfg, chat)
-	lockScreen := &lockingTTYScreen{tty: &mockTty{}}
-	m.lastScreen = lockScreen
-	m.emoteItemByKey["https://cdn.discordapp.com/emojis/7.png"] = &imageItem{
-		kittyID:          7,
-		kittyPlaced:      true,
-		kittyUploaded:    true,
-		pendingPlace:     true,
-		kittyCols:        2,
-		kittyVisibleRows: 1,
-		lastX:            1,
-		lastY:            2,
-	}
-
-	m.clear()
-
-	if len(m.pendingDeletes) != 1 || m.pendingDeletes[0] != 7 {
-		t.Fatalf("expected kitty delete to be queued for autocomplete emoji, got %v", m.pendingDeletes)
-	}
-	item := m.emoteItemByKey["https://cdn.discordapp.com/emojis/7.png"]
-	if item.pendingPlace || item.kittyPlaced || item.kittyUploaded {
-		t.Fatal("expected clear to invalidate kitty popup image state")
-	}
-	if lockScreen.lockCalls == 0 {
-		t.Fatal("expected clear to unlock the prior kitty region")
-	}
-	if !m.hasPendingAfterDraw() {
-		t.Fatal("expected clear to keep pending kitty cleanup for AfterDraw")
-	}
-
-	tty := &mockTty{}
-	m.AfterDraw(&screenWithTty{tty: tty})
-	if !strings.Contains(tty.String(), "a=d,d=I,i=7") {
-		t.Fatalf("expected AfterDraw to delete stale kitty popup emoji, got %q", tty.String())
-	}
-	if m.hasPendingAfterDraw() {
-		t.Fatal("expected AfterDraw to drain pending kitty cleanup")
-	}
-}
-
-func TestMentionsList_LineForEmoji(t *testing.T) {
-	chat := newMockChatModel()
-	m := newMentionsList(chat.cfg, chat)
-
-	t.Run("invalid ID", func(t *testing.T) {
-		emoji := discord.Emoji{Name: "smile"} // No ID
-		line := m.lineForEmoji(emoji)
-		if len(line) != 1 || line[0].Text != "smile" {
-			t.Fatalf("expected simple label for invalid ID emoji, got %#v", line)
-		}
+	url := "https://cdn.discordapp.com/emojis/123.png"
+	m.append(mentionsListItem{
+		insertText:  "<:kekw:123>",
+		displayText: ":kekw:",
+		style:       tcell.StyleDefault,
+		previewURL:  url,
 	})
-
-	t.Run("valid ID", func(t *testing.T) {
-		emoji := discord.Emoji{ID: 123, Name: "kekw"}
-		line := m.lineForEmoji(emoji)
-		if len(line) != 2 || !strings.Contains(line[0].Text, "kekw") {
-			t.Fatalf("expected preview and label for valid ID emoji, got %#v", line)
-		}
-	})
-}
-
-func TestMentionsList_Draw(t *testing.T) {
-	chat := newMockChatModel()
-	chat.cfg.InlineImages.Enabled = true
-	chat.messagesList.useKitty = true
-	m := newMentionsList(chat.cfg, chat)
-
-	screen := &mockEmoteScreen{
-		cells: make(map[string]string),
-	}
-
-	// Add an emoji to the list to be drawn
-	emoji := discord.Emoji{ID: 123, Name: "kekw"}
-	m.appendEmoji(emoji)
 	m.rebuild()
 
-	// Mock screen content to have an emoji URL in a cell style
-	screen.cells["10,5"] = emoji.EmojiURL()
-
-	chat.messagesList.cellW = 10
-	chat.messagesList.cellH = 20
-
-	m.SetRect(0, 0, 80, 24)
-	m.Draw(screen) // First Draw populates emoteItemByKey
-	
-	// Force item into state where it will be queued for delete on next rebuild/clear
-	for _, item := range m.emoteItemByKey {
-		item.pendingPlace = true
+	item, ok := m.Builder()(0, 0).(*mentionsListRowItem)
+	if !ok {
+		t.Fatalf("expected builder item to be a row item, got %T", m.Builder()(0, 0))
 	}
-	
-	m.Draw(screen) // Second Draw triggers prepareKittyItemsForFrame
-
-	if m.lastScreen != screen {
-		t.Errorf("expected lastScreen to be set after Draw")
+	if item.preview == nil {
+		t.Fatal("expected overlay emoji preview to be enabled")
 	}
-
-	m.queueKittyDeletes() // Trigger more lines
-
-	tty := &mockTty{}
-	// Test AfterDraw with kitty enabled
-	chat.messagesList.useKitty = true
-	m.AfterDraw(&screenWithTty{tty: tty})
-
-	t.Run("AfterDraw early return 1", func(t *testing.T) {
-		m.cfg.InlineImages.Enabled = false
-		m.pendingDeletes = nil
-		m.AfterDraw(&MockScreen{})
-	})
-
-	t.Run("AfterDraw early return 2", func(t *testing.T) {
-		m.cfg.InlineImages.Enabled = false
-		m.pendingDeletes = append(m.pendingDeletes, 123)
-		m.AfterDraw(&screenWithTty{tty: tty})
-	})
+	if item.item.previewURL != url {
+		t.Fatalf("expected emoji preview URL metadata %q, got %q", url, item.item.previewURL)
+	}
 }
 
-func TestMentionsList_ScanAndDrawEmotes_Disabled(t *testing.T) {
-	chat := newMockChatModel()
-	chat.cfg.InlineImages.Enabled = false
-	m := newMentionsList(chat.cfg, chat)
-	m.scanAndDrawEmotes(&MockScreen{})
-}
-
-func TestMentionsList_ScanAndDrawEmotes_NilItem(t *testing.T) {
-	chat := newMockChatModel()
+func TestMentionsListScanAndDrawEmotesRequestsCache(t *testing.T) {
+	chat := newTestModel()
 	chat.cfg.InlineImages.Enabled = true
 	m := newMentionsList(chat.cfg, chat)
-	m.imageCache = nil // Will cause previewItemByURL to return nil
+	m.cfg.InlineImages.Enabled = true
+	m.SetRect(0, 0, 20, 3)
+	m.append(mentionsListItem{
+		insertText:  "<:kekw:123>",
+		displayText: ":kekw:",
+		style:       tcell.StyleDefault,
+		previewURL:  "https://cdn.discordapp.com/emojis/123.png",
+	})
+	m.rebuild()
 
-	screen := &mockEmoteScreen{
-		cells: map[string]string{
-			"10,5": "https://cdn.discordapp.com/emojis/123.png",
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	url := "https://cdn.discordapp.com/emojis/123.png"
+	rt := &mockTransport{
+		roundTrip: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(buf.Bytes())),
+				Header:     make(http.Header),
+			}, nil
 		},
 	}
-	m.SetRect(0, 0, 80, 24)
-	m.scanAndDrawEmotes(screen)
-}
+	m.imageCache = imgpkg.NewCache(&http.Client{Transport: rt})
 
-func TestMentionsList_PreviewItemByURL(t *testing.T) {
-	chat := newMockChatModel()
-	m := newMentionsList(chat.cfg, chat)
+	screen := &completeMockScreen{}
+	m.Draw(screen)
 
-	t.Run("nil imageCache", func(t *testing.T) {
-		m.imageCache = nil
-		if item := m.previewItemByURL("key", "url"); item != nil {
-			t.Errorf("expected nil item for nil imageCache, got %v", item)
-		}
-	})
-
-	t.Run("AfterDraw without tty", func(t *testing.T) {
-		m.cfg.InlineImages.Enabled = true
-		if m.messagesList != nil {
-			m.messagesList.useKitty = true
-		}
-		m.pendingDeletes = append(m.pendingDeletes, 123)
-		m.AfterDraw(&MockScreen{})
-	})
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for !m.imageCache.Requested(url) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !m.imageCache.Requested(url) {
+		t.Fatal("expected emoji preview cache request")
+	}
 }

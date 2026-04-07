@@ -6,11 +6,11 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/help"
 	"github.com/eyalmazuz/tview/keybind"
 	"github.com/eyalmazuz/tview/picker"
-	"github.com/diamondburned/arikawa/v3/discord"
 )
 
 type channelsPicker struct {
@@ -64,10 +64,15 @@ func (cp *channelsPicker) Update(msg tview.Msg) tview.Cmd {
 func (cp *channelsPicker) update() {
 	var items picker.Items
 	state := cp.chatView.state
+	if state == nil {
+		cp.Model.SetItems(nil)
+		return
+	}
 
 	privateChannels, err := state.Cabinet.PrivateChannels()
 	if err != nil {
 		slog.Error("failed to get private channels from state", "err", err)
+		cp.Model.SetItems(nil)
 		return
 	}
 
@@ -79,6 +84,7 @@ func (cp *channelsPicker) update() {
 	guilds, err := state.Cabinet.Guilds()
 	if err != nil {
 		slog.Error("failed to get guilds from state", "err", err)
+		cp.Model.SetItems(items)
 		return
 	}
 
@@ -95,6 +101,10 @@ func (cp *channelsPicker) update() {
 	}
 
 	cp.Model.SetItems(items)
+}
+
+func (cp *channelsPicker) addChannel(guild *discord.Guild, channel discord.Channel) {
+	cp.Model.AddItem(cp.channelItem(guild, channel))
 }
 
 func (cp *channelsPicker) channelItem(guild *discord.Guild, channel discord.Channel) picker.Item {

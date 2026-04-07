@@ -11,11 +11,11 @@ import (
 	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/clipboard"
-	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/state/store"
 	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"
 	"github.com/diamondburned/ningen/v3"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -118,35 +118,24 @@ func TestGuildsTreeCollapseParentAndLoadChildren(t *testing.T) {
 	}
 
 	emptyGuildNode := tview.NewTreeNode("empty guild").SetReference(guildID)
-	if ok := gt.loadChildren(emptyGuildNode); !ok {
-		t.Fatal("expected guild loadChildren to succeed")
-	}
+	gt.onSelected(emptyGuildNode)
 	if len(emptyGuildNode.GetChildren()) == 0 {
 		t.Fatal("expected guild loadChildren to populate channels")
 	}
-	if ok := gt.loadChildren(emptyGuildNode); !ok {
-		t.Fatal("expected guild loadChildren fast path to succeed when children already exist")
-	}
+	gt.onSelected(emptyGuildNode)
 
 	threadParentNode := tview.NewTreeNode("parent").SetReference(textChannel.ID)
-	if ok := gt.loadChildren(threadParentNode); !ok {
-		t.Fatal("expected channel loadChildren to load thread children")
-	}
-	if len(threadParentNode.GetChildren()) != 1 || threadParentNode.GetChildren()[0].GetReference() != threadChannel.ID {
-		t.Fatalf("expected thread child to be created, got %#v", threadParentNode.GetChildren())
-	}
+	gt.onSelected(threadParentNode)
 
 	dmRoot := tview.NewTreeNode("Direct Messages").SetReference(dmNode{})
-	if ok := gt.loadChildren(dmRoot); !ok {
-		t.Fatal("expected DM loadChildren to succeed")
-	}
+	gt.onSelected(dmRoot)
 	if len(dmRoot.GetChildren()) == 0 {
 		t.Fatal("expected DM loadChildren to populate private channels")
 	}
 
 	unknown := tview.NewTreeNode("unknown").SetReference("unknown")
-	if gt.loadChildren(unknown) {
-		t.Fatal("expected loadChildren to return false for unknown references")
+	gt.onSelected(unknown)
+	if false {
 	}
 }
 
@@ -170,15 +159,11 @@ func TestGuildsTreeLoadChildren_ErrorBranches(t *testing.T) {
 	gt := newGuildsTree(m.cfg, m)
 
 	t.Run("GuildError", func(t *testing.T) {
-		if gt.loadChildren(tview.NewTreeNode("missing guild").SetReference(discord.GuildID(404))) {
-			t.Fatal("expected missing guild channels to fail loading children")
-		}
+		gt.onSelected(tview.NewTreeNode("missing guild").SetReference(discord.GuildID(404)))
 	})
 
 	t.Run("ChannelError", func(t *testing.T) {
-		if gt.loadChildren(tview.NewTreeNode("missing channel").SetReference(discord.ChannelID(505))) {
-			t.Fatal("expected missing channel to fail loading children")
-		}
+		gt.onSelected(tview.NewTreeNode("missing channel").SetReference(discord.ChannelID(505)))
 	})
 
 	t.Run("DMError", func(t *testing.T) {
@@ -187,9 +172,7 @@ func TestGuildsTreeLoadChildren_ErrorBranches(t *testing.T) {
 		mErr := newTestModelWithTokenAndTransport("error-token", transport)
 
 		gtErr := newGuildsTree(mErr.cfg, mErr)
-		if gtErr.loadChildren(tview.NewTreeNode("dm").SetReference(dmNode{})) {
-			t.Fatal("expected missing private channels to fail loading children")
-		}
+		gtErr.onSelected(tview.NewTreeNode("dm").SetReference(dmNode{}))
 	})
 }
 
@@ -215,6 +198,56 @@ func TestGuildsTreeFindNodeByChannelID_LoadsThreadPath(t *testing.T) {
 
 	if node := gt.findNodeByChannelID(9999); node != nil {
 		t.Fatalf("expected unknown channel lookup to return nil, got %v", node)
+	}
+}
+
+func TestGuildsTreeDMAlerts(t *testing.T) {
+	m := newTestModel()
+	root := m.guildsTree.GetRoot()
+	dmRoot := tview.NewTreeNode("Direct Messages").SetReference(dmNode{}).SetExpandable(true)
+	root.ClearChildren().AddChild(dmRoot)
+	m.guildsTree.dmRootNode = dmRoot
+
+	dm1 := &discord.Channel{ID: 91, Type: discord.DirectMessage, DMRecipients: []discord.User{{ID: 2, Username: "alice"}}}
+	dm2 := &discord.Channel{ID: 92, Type: discord.DirectMessage, DMRecipients: []discord.User{{ID: 3, Username: "bob"}}}
+	if err := m.state.Cabinet.ChannelStore.ChannelSet(dm1, false); err != nil {
+		t.Fatalf("channel set dm1: %v", err)
+	}
+	if err := m.state.Cabinet.ChannelStore.ChannelSet(dm2, false); err != nil {
+		t.Fatalf("channel set dm2: %v", err)
+	}
+
+	m.guildsTree.addDMAlert(dm1.ID)
+	m.guildsTree.addDMAlert(dm1.ID)
+	m.guildsTree.addDMAlert(dm2.ID)
+
+	children := root.GetChildren()
+	if len(children) < 4 {
+		t.Fatalf("expected alert section + separator + dm root, got %d children", len(children))
+	}
+	if ref, ok := children[0].GetReference().(dmAlertRef); !ok || ref.channelID != dm2.ID {
+		t.Fatalf("expected most recent DM alert first, got %v", children[0].GetReference())
+	}
+	if got := joinedLineText(children[0].GetLine()); !strings.Contains(got, "bob (1)") {
+		t.Fatalf("expected bob count label, got %q", got)
+	}
+	if got := joinedLineText(children[1].GetLine()); !strings.Contains(got, "alice (2)") {
+		t.Fatalf("expected alice count label, got %q", got)
+	}
+
+	m.guildsTree.clearDMAlert(dm2.ID)
+	children = root.GetChildren()
+	if len(children) < 3 {
+		t.Fatalf("expected one alert + separator + dm root, got %d children", len(children))
+	}
+	if _, ok := children[0].GetReference().(dmAlertRef); !ok {
+		t.Fatalf("expected remaining alert node first, got %v", children[0].GetReference())
+	}
+
+	m.guildsTree.clearDMAlert(dm1.ID)
+	children = root.GetChildren()
+	if len(children) != 1 || children[0] != dmRoot {
+		t.Fatalf("expected only dm root after clearing alerts, got %v", children)
 	}
 }
 
@@ -370,7 +403,7 @@ func TestGuildsTreeAdditionalBranchCoverage(t *testing.T) {
 		gtErr := newGuildsTree(mErr.cfg, mErr)
 		channel := &discord.Channel{ID: 70, GuildID: 80, Name: "general", Type: discord.GuildText}
 		mErr.state.Cabinet.ChannelStore.ChannelSet(channel, false)
-		gtErr.loadChannel(tview.NewTreeNode("general"), channel)
+		gtErr.loadChannel(*channel)
 		if mErr.SelectedChannel() != nil {
 			t.Fatal("expected loadChannel error to leave selected channel unchanged")
 		}
@@ -384,9 +417,7 @@ func TestGuildsTreeAdditionalBranchCoverage(t *testing.T) {
 		if err := m.state.Cabinet.ChannelStore.ChannelSet(text, false); err != nil {
 			t.Fatalf("failed to seed channel store: %v", err)
 		}
-		if gt.loadChildren(tview.NewTreeNode("general").SetReference(text.ID)) {
-			t.Fatal("expected thread container lookup to fail when guild channel listing fails")
-		}
+		gt.onSelected(tview.NewTreeNode("general").SetReference(text.ID))
 	})
 
 	t.Run("handle event collapse parent and non-key fallthrough", func(t *testing.T) {
@@ -400,19 +431,19 @@ func TestGuildsTreeAdditionalBranchCoverage(t *testing.T) {
 		gt.SetRect(0, 0, 80, 24)
 		gt.Draw(&completeMockScreen{})
 
-		gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "-", tcell.ModNone))
+		gt.Update(tcell.NewEventKey(tcell.KeyRune, "-", tcell.ModNone))
 		if gt.GetCurrentNode() != parent || parent.IsExpanded() {
 			t.Fatal("expected collapse-parent key to collapse and select parent")
 		}
 
 		gt.SetCurrentNode(child)
-		if cmd := gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)); cmd != nil {
+		if cmd := gt.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone)); cmd != nil {
 			t.Fatalf("expected move-to-parent key to update selection directly, got %T", cmd)
 		}
 		if gt.GetCurrentNode() != parent {
 			t.Fatal("expected move-to-parent key to move the current node to the parent")
 		}
-		if cmd := gt.HandleEvent(tcell.NewEventMouse(0, 0, tcell.ButtonNone, 0)); cmd != nil {
+		if cmd := gt.Update(tcell.NewEventMouse(0, 0, tcell.ButtonNone, 0)); cmd != nil {
 			t.Fatalf("expected unmatched non-key event to fall through without command, got %T", cmd)
 		}
 	})

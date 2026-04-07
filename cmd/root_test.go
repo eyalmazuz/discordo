@@ -83,7 +83,7 @@ func TestRun(t *testing.T) {
 		newScreen = func() (tcell.Screen, error) { return screen, nil }
 		newApp = tview.NewApplication
 		rootCalls := 0
-		newRootModel = func(cfg *config.Config, app *tview.Application) tview.Primitive {
+		newRootModel = func(cfg *config.Config, app *tview.Application) tview.Model {
 			rootCalls++
 			return rootui.NewModel(cfg, app)
 		}
@@ -166,7 +166,7 @@ func TestRun(t *testing.T) {
 		}
 		loadConfig = func(string) (*config.Config, error) { return cfg, nil }
 		newScreen = func() (tcell.Screen, error) { return &testScreen{}, nil }
-		newRootModel = func(cfg *config.Config, app *tview.Application) tview.Primitive { return rootui.NewModel(cfg, app) }
+		newRootModel = func(cfg *config.Config, app *tview.Application) tview.Model { return rootui.NewModel(cfg, app) }
 		runApp = func(*tview.Application) error { return errors.New("run fail") }
 		if err := Run(); err == nil || err.Error() != "run fail" {
 			t.Fatalf("Run() error = %v", err)

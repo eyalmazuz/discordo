@@ -86,6 +86,7 @@ type (
 
 	InlineImages struct {
 		Enabled     bool   `toml:"enabled"`
+		Animations  bool   `toml:"animations"`
 		MaxWidth    int    `toml:"max_width"`
 		MaxHeight   int    `toml:"max_height"`
 		MaxFileSize int64  `toml:"max_file_size"`

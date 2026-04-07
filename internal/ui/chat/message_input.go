@@ -18,9 +18,6 @@ import (
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/consts"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/state"
@@ -28,6 +25,9 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/sendpart"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/diamondburned/ningen/v3/discordmd"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
 	"github.com/gdamore/tcell/v3"
 	"github.com/ncruces/zenity"
 	"github.com/sahilm/fuzzy"
@@ -65,7 +65,7 @@ func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
 		chat:            chatView,
 		sendMessageData: &api.SendMessageData{},
 		cache:           cache.NewCache(),
-		mentionsList:    newMentionsList(cfg),
+		mentionsList:    newMentionsList(cfg, chatView),
 	}
 	mi.Box = ui.ConfigureBox(mi.Box, &cfg.Theme)
 	mi.
@@ -270,7 +270,8 @@ func (mi *messageInput) processText(channel *discord.Channel, src []byte) string
 		return ast.WalkContinue, nil
 	})
 
-	for _, rng := range ranges {
+	for i := len(ranges) - 1; i >= 0; i-- {
+		rng := ranges[i]
 		src = slices.Replace(src, rng[0], rng[1], mi.expandMentions(channel, src[rng[0]:rng[1]])...)
 	}
 
@@ -312,7 +313,7 @@ func (mi *messageInput) tabComplete() tview.Cmd {
 	posEnd, name, r := mi.GetWordUnderCursor(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
 	})
-	if r != '@' {
+	if r != '@' && r != ':' {
 		return mi.stopTabCompletion()
 	}
 	pos := posEnd - (len(name) + 1)
@@ -322,6 +323,18 @@ func (mi *messageInput) tabComplete() tview.Cmd {
 		return nil
 	}
 	gID := selected.GuildID
+
+	if r == ':' {
+		if mi.cfg.AutocompleteLimit == 0 || mi.mentionsList.itemCount() == 0 {
+			return nil
+		}
+		name, ok := mi.mentionsList.selectedInsertText()
+		if !ok {
+			return nil
+		}
+		mi.Replace(pos, posEnd, name+" ")
+		return mi.stopTabCompletion()
+	}
 
 	if mi.cfg.AutocompleteLimit == 0 {
 		if !gID.IsValid() {
@@ -364,12 +377,15 @@ func (mi *messageInput) tabSuggest() tview.Cmd {
 	_, name, r := mi.GetWordUnderCursor(func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.'
 	})
-	if r != '@' {
+	if r != '@' && r != ':' {
 		return mi.stopTabCompletion()
 	}
 	selected := mi.chat.SelectedChannel()
 	if selected == nil {
 		return nil
+	}
+	if r == ':' {
+		return mi.suggestEmojis(selected, name)
 	}
 	gID := selected.GuildID
 	cID := selected.ID
@@ -454,8 +470,13 @@ func (mi *messageInput) tabSuggest() tview.Cmd {
 	return mi.showMentionsList()
 }
 
+func (mi *messageInput) tabSuggestion() tview.Cmd {
+	return mi.tabSuggest()
+}
+
 type memberList []discord.Member
 type userList []discord.User
+type emojiList []discord.Emoji
 
 func (ml memberList) String(i int) string {
 	return ml[i].Nick + ml[i].User.DisplayName + ml[i].User.Tag()
@@ -471,6 +492,14 @@ func (ul userList) String(i int) string {
 
 func (ul userList) Len() int {
 	return len(ul)
+}
+
+func (el emojiList) String(i int) string {
+	return el[i].Name
+}
+
+func (el emojiList) Len() int {
+	return len(el)
 }
 
 // channelHasUser checks if a user has permission to view the specified channel.
@@ -602,6 +631,66 @@ func (mi *messageInput) addMentionUser(user *discord.User) {
 		displayText: name,
 		style:       style,
 	})
+}
+
+func (mi *messageInput) addEmojiSuggestion(emoji discord.Emoji) bool {
+	displayText := ":" + emoji.Name + ":"
+	if emoji.Animated {
+		displayText += " [animated]"
+	}
+
+	mi.mentionsList.append(mentionsListItem{
+		insertText:  emojiAutocompleteText(emoji),
+		displayText: displayText,
+		style:       tcell.StyleDefault,
+		previewURL:  emoji.EmojiURL(),
+	})
+	return mi.mentionsList.itemCount() >= int(mi.cfg.AutocompleteLimit)
+}
+
+func emojiAutocompleteText(emoji discord.Emoji) string {
+	if emoji.Animated {
+		return "<a:" + emoji.Name + ":" + emoji.ID.String() + ">"
+	}
+	return "<:" + emoji.Name + ":" + emoji.ID.String() + ">"
+}
+
+func (mi *messageInput) suggestEmojis(selected *discord.Channel, name string) tview.Cmd {
+	mi.mentionsList.clear()
+
+	emojis := availableEmojisForChannel(mi.chat.state, selected)
+	if len(emojis) == 0 {
+		return mi.stopTabCompletion()
+	}
+
+	if name == "" {
+		for _, emoji := range emojis {
+			if mi.addEmojiSuggestion(emoji) {
+				break
+			}
+		}
+	} else {
+		res := fuzzy.FindFrom(name, emojiList(emojis))
+		if len(res) > int(mi.cfg.AutocompleteLimit) {
+			res = res[:int(mi.cfg.AutocompleteLimit)]
+		}
+		for _, r := range res {
+			if mi.addEmojiSuggestion(emojis[r.Index]) {
+				break
+			}
+		}
+	}
+
+	if mi.mentionsList.itemCount() == 0 {
+		return mi.stopTabCompletion()
+	}
+
+	mi.mentionsList.rebuild()
+	return mi.showMentionsList()
+}
+
+func (mi *messageInput) showMentionList() tview.Cmd {
+	return mi.showMentionsList()
 }
 
 func (mi *messageInput) removeMentionsList() {

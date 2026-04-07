@@ -48,6 +48,11 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return nil
 		}
 		return m.showErrorDialog(msg.err)
+	case *tcell.EventError:
+		if m.HasLayer(errorLayerName) {
+			return nil
+		}
+		return m.showErrorDialog(msg)
 	case *tview.ModalDoneMsg:
 		if !m.HasLayer(errorLayerName) {
 			return nil

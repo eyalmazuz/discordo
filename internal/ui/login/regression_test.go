@@ -26,13 +26,13 @@ func TestRegression_LoginTabs(t *testing.T) {
 	}
 
 	// Simulate 'Ctrl+L' to move to next tab (QR)
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlL, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlL, "", tcell.ModNone))
 	if getActiveTab(m) != 1 {
 		t.Errorf("expected tab to be 1 (QR) after 'Ctrl+L', got %d", getActiveTab(m))
 	}
 
 	// Switch back to Token tab
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlH, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlH, "", tcell.ModNone))
 	if getActiveTab(m) != 0 {
 		t.Errorf("expected tab to be 0 (Token) after 'Ctrl+H', got %d", getActiveTab(m))
 	}
@@ -44,14 +44,14 @@ func TestRegression_LoginErrorFlow(t *testing.T) {
 
 	// Simulate an error event
 	errEv := tcell.NewEventError(errors.New("test error"))
-	m.HandleEvent(errEv)
+	m.Update(errEv)
 
 	if !m.HasLayer(errorLayerName) {
 		t.Fatal("expected error layer to be visible")
 	}
 
 	// Close the error dialog
-	m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 1}) // Close button
+	m.Update(&tview.ModalDoneMsg{ButtonIndex: 1}) // Close button
 	if m.HasLayer(errorLayerName) {
 		t.Error("expected error layer to be removed after closing")
 	}

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -32,7 +32,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyOpensPopup(t *testing.T) {
 	m := newTestModelWithTransport(transport)
 	m.SetSelectedChannel(channel)
 
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if !m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected pinned messages popup layer to be visible")
 	}
@@ -51,7 +51,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleMentionsList(t *testin
 	m := newTestModel()
 	channel := &discord.Channel{ID: 200, Type: discord.DirectMessage}
 	m.SetSelectedChannel(channel)
-	m.app.SetFocus(m.messageInput)
+	setFocusForTest(m.app, m.messageInput)
 
 	m.messageInput.mentionsList.append(mentionsListItem{insertText: "alice", displayText: "Alice", style: tcell.StyleDefault})
 	m.messageInput.mentionsList.append(mentionsListItem{insertText: "bob", displayText: "Bob", style: tcell.StyleDefault})
@@ -59,7 +59,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleMentionsList(t *testin
 	m.ShowLayer(mentionsListLayerName).SendToFront(mentionsListLayerName)
 	m.messageInput.mentionsList.SetCursor(1)
 
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected ctrl+p not to open pinned messages while mentions list is visible")
 	}
@@ -72,7 +72,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleEmojiAutocomplete(t *t
 	m := newTestModel()
 	channel := &discord.Channel{ID: 210, GuildID: 211, Type: discord.GuildText}
 	m.SetSelectedChannel(channel)
-	m.app.SetFocus(m.messageInput)
+	setFocusForTest(m.app, m.messageInput)
 	m.messageInput.SetDisabled(false)
 	m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{
 		{ID: 1, Name: "kekw"},
@@ -86,7 +86,7 @@ func TestModel_HandleEvent_PinnedMessagesKeyIgnoresVisibleEmojiAutocomplete(t *t
 	}
 	m.messageInput.mentionsList.SetCursor(1)
 
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
 	if m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected ctrl+p not to open pinned messages while emoji autocomplete is visible")
 	}
@@ -120,8 +120,8 @@ func TestModel_HandleEvent_PinnedMessagesPopupEnterJumpsToMessage(t *testing.T) 
 	m := newTestModelWithTransport(transport)
 	m.SetSelectedChannel(channel)
 
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-	executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+	executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 
 	if m.HasLayer(testPinnedMessagesLayerName) {
 		t.Fatal("expected pinned messages popup to close after selecting a pin")
@@ -154,8 +154,8 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 		m := newTestModelWithTransport(transport)
 		m.SetSelectedChannel(channel)
 
-		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-		m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
+		m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+		m.Update(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
 		if !m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected unpin confirmation dialog to be visible")
 		}
@@ -166,11 +166,11 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 			t.Fatalf("expected unpin confirmation prompt, got:\n%s", flat)
 		}
 
-		m.Focus(func(p tview.Primitive) {
-			m.app.SetFocus(p)
+		m.Focus(func(p tview.Model) {
+			setFocusForTest(m.app, p)
 		})
-		executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)))
-		executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+		executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)))
+		executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 
 		if m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected unpin confirmation dialog to close after cancellation")
@@ -203,12 +203,12 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 		m := newTestModelWithTransport(transport)
 		m.SetSelectedChannel(channel)
 
-		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-		m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
-		m.Focus(func(p tview.Primitive) {
-			m.app.SetFocus(p)
+		m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+		m.Update(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
+		m.Focus(func(p tview.Model) {
+			setFocusForTest(m.app, p)
 		})
-		executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+		executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 
 		if transport.method != http.MethodDelete || !strings.Contains(transport.path, "/channels/200/pins/301") {
 			t.Fatalf("expected confirm unpin to delete the pin, got %s %s", transport.method, transport.path)
@@ -235,8 +235,8 @@ func TestModel_HandleEvent_PinnedMessagesPopupDeleteFlows(t *testing.T) {
 		m := newTestModelWithTransport(transport)
 		m.SetSelectedChannel(channel)
 
-		m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
-		executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone)))
+		m.Update(tcell.NewEventKey(tcell.KeyCtrlP, "", tcell.ModNone))
+		executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone)))
 		if m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected force-unpin to skip the confirmation dialog")
 		}

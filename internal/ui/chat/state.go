@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/ayn2op/discordo/internal/notifications"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/utils/httputil/httpdriver"
@@ -42,6 +41,7 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 		GetRoot().
 		ClearChildren().
 		AddChild(dmNode)
+	m.guildsTree.rebuildDMAlertSection()
 
 	// Track guilds already in folders to find orphans.
 	// Newly joined guilds may not be synced to GuildFolders yet but always appear in guild positions.
@@ -98,18 +98,30 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 
 func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 	selectedChannel := m.SelectedChannel()
-	if selectedChannel != nil && selectedChannel.ID == message.ChannelID {
+	isCurrentChannel := selectedChannel != nil && selectedChannel.ID == message.ChannelID
+
+	if isCurrentChannel {
 		m.removeTyper(message.Author.ID)
 		m.messagesList.addMessage(message.Message)
-		return nil
 	}
 
+	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil && !channel.GuildID.IsValid() {
+		me, _ := m.state.Cabinet.Me()
+		if me == nil || message.Author.ID != me.ID {
+			m.guildsTree.addDMAlert(message.ChannelID)
+			m.guildsTree.reorderDMChannel(message.ChannelID)
+		}
+	}
+
+	if isCurrentChannel {
+		return nil
+	}
 	return m.notify(*message)
 }
 
 func (m *Model) notify(message gateway.MessageCreateEvent) tview.Cmd {
 	return func() tview.Msg {
-		if err := notifications.Notify(m.state, message, m.cfg); err != nil {
+		if err := notifyMessage(m.state, message, m.cfg); err != nil {
 			slog.Error("failed to notify", "err", err, "channel_id", message.ChannelID, "message_id", message.ID)
 			return nil
 		}
@@ -175,6 +187,28 @@ func (m *Model) onMessageDelete(message *gateway.MessageDeleteEvent) {
 	}
 }
 
+func (m *Model) onMessageReaction(channelID discord.ChannelID, messageID discord.MessageID) {
+	selectedChannel := m.SelectedChannel()
+	if selectedChannel == nil || selectedChannel.ID != channelID {
+		return
+	}
+
+	index := slices.IndexFunc(m.messagesList.messages, func(msg discord.Message) bool {
+		return msg.ID == messageID
+	})
+	if index < 0 {
+		return
+	}
+
+	// The cabinet was already updated by arikawa's state handler;
+	// re-read the message to pick up the new reactions.
+	updated, err := m.state.Cabinet.Message(channelID, messageID)
+	if err != nil {
+		return
+	}
+	m.messagesList.setMessage(index, *updated)
+}
+
 func (m *Model) onGuildMembersChunk(event *gateway.GuildMembersChunkEvent) {
 	m.messagesList.setFetchingChunk(false, uint(len(event.Members)))
 }
@@ -218,6 +252,9 @@ func (m *Model) onReadUpdate(event *read.UpdateEvent) {
 			indication := m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true})
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.unreadStyle(indication))
 			return
+		}
+		if !channel.GuildID.IsValid() && m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true}) == ningen.ChannelRead {
+			m.guildsTree.clearDMAlert(event.ChannelID)
 		}
 		m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
 	}

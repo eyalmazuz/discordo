@@ -9,8 +9,8 @@ import (
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/logger"
 	"github.com/ayn2op/discordo/internal/ui/root"
-	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -32,7 +32,7 @@ var (
 	loadConfig   = config.Load
 	newScreen    = tcell.NewScreen
 	newApp       = tview.NewApplication
-	newRootModel = func(cfg *config.Config, app *tview.Application) tview.Primitive {
+	newRootModel = func(cfg *config.Config, app *tview.Application) tview.Model {
 		return root.NewModel(cfg, app)
 	}
 	runApp = func(app *tview.Application) error { return app.Run() }
@@ -81,8 +81,7 @@ func Run() error {
 	screen.EnableFocus()
 
 	tview.Styles = tview.Theme{}
-	app := newApp()
+	app := newApp(tview.WithScreen(screen))
 	app.SetRoot(newRootModel(cfg, app))
-	app.SetScreen(screen)
 	return runApp(app)
 }

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	clipkg "github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
@@ -30,50 +32,115 @@ import (
 
 type completeMockScreen struct {
 	MockScreen
+	events chan tcell.Event
 }
 
-func (m *completeMockScreen) Init() error { return nil }
-func (m *completeMockScreen) Fini() {}
-func (m *completeMockScreen) Clear() {}
-func (m *completeMockScreen) Fill(rune, tcell.Style) {}
-func (m *completeMockScreen) Show() {}
-func (m *completeMockScreen) CharacterSet() string { return "UTF-8" }
-func (m *completeMockScreen) Size() (int, int) { return 80, 24 }
-func (m *completeMockScreen) HasMouse() bool { return false }
-func (m *completeMockScreen) HasKey(tcell.Key) bool { return true }
-func (m *completeMockScreen) Colors() int { return 256 }
+func (m *completeMockScreen) Init() error                                      { return nil }
+func (m *completeMockScreen) Fini()                                            {}
+func (m *completeMockScreen) Clear()                                           {}
+func (m *completeMockScreen) Fill(rune, tcell.Style)                           {}
+func (m *completeMockScreen) Show()                                            {}
+func (m *completeMockScreen) CharacterSet() string                             { return "UTF-8" }
+func (m *completeMockScreen) Size() (int, int)                                 { return 80, 24 }
+func (m *completeMockScreen) HasMouse() bool                                   { return false }
+func (m *completeMockScreen) HasKey(tcell.Key) bool                            { return true }
+func (m *completeMockScreen) Colors() int                                      { return 256 }
 func (m *completeMockScreen) SetCursorStyle(tcell.CursorStyle, ...color.Color) {}
-func (m *completeMockScreen) ShowCursor(x, y int) {}
-func (m *completeMockScreen) HideCursor() {}
-func (m *completeMockScreen) SetStyle(tcell.Style) {}
-func (m *completeMockScreen) GetContent(x, y int) (rune, []rune, tcell.Style, int) { return ' ', nil, tcell.StyleDefault, 1 }
-func (m *completeMockScreen) SetSize(int, int) {}
-func (m *completeMockScreen) Channel() chan tcell.Event { return make(chan tcell.Event) }
-func (m *completeMockScreen) EventQ() chan tcell.Event { return make(chan tcell.Event) }
-func (m *completeMockScreen) PostEvent(tcell.Event) error { return nil }
-func (m *completeMockScreen) PostEventWait(tcell.Event) {}
-func (m *completeMockScreen) Sync() {}
-func (m *completeMockScreen) Register() {}
-func (m *completeMockScreen) Unregister() {}
+func (m *completeMockScreen) ShowCursor(x, y int)                              {}
+func (m *completeMockScreen) HideCursor()                                      {}
+func (m *completeMockScreen) SetStyle(tcell.Style)                             {}
+func (m *completeMockScreen) GetContent(x, y int) (rune, []rune, tcell.Style, int) {
+	return ' ', nil, tcell.StyleDefault, 1
+}
+func (m *completeMockScreen) SetSize(int, int)                {}
+func (m *completeMockScreen) Channel() chan tcell.Event       { return m.eventQueue() }
+func (m *completeMockScreen) EventQ() chan tcell.Event        { return m.eventQueue() }
+func (m *completeMockScreen) PostEvent(tcell.Event) error     { return nil }
+func (m *completeMockScreen) PostEventWait(tcell.Event)       {}
+func (m *completeMockScreen) Sync()                           {}
+func (m *completeMockScreen) Register()                       {}
+func (m *completeMockScreen) Unregister()                     {}
 func (m *completeMockScreen) EnableMouse(...tcell.MouseFlags) {}
-func (m *completeMockScreen) DisableMouse() {}
-func (m *completeMockScreen) EnablePaste() {}
-func (m *completeMockScreen) DisablePaste() {}
-func (m *completeMockScreen) Reload() {}
-func (m *completeMockScreen) SetClip(x, y, w, h int) {}
-func (m *completeMockScreen) GetClip() (int, int, int, int) { return 0, 0, 80, 24 }
-func (m *completeMockScreen) SetAttributes(tcell.AttrMask) {}
-func (m *completeMockScreen) Beep() error { return nil }
-func (m *completeMockScreen) SetTitle(string) {}
-func (m *completeMockScreen) Stop() {}
-func (m *completeMockScreen) Suspend() error { return nil }
-func (m *completeMockScreen) Pause() {}
-func (m *completeMockScreen) Resume() error { return nil }
-func (m *completeMockScreen) IsPaused() bool { return false }
-func (m *completeMockScreen) Put(x, y int, s string, style tcell.Style) (string, int) { return s, len(s) }
+func (m *completeMockScreen) DisableMouse()                   {}
+func (m *completeMockScreen) EnablePaste()                    {}
+func (m *completeMockScreen) DisablePaste()                   {}
+func (m *completeMockScreen) Reload()                         {}
+func (m *completeMockScreen) SetClip(x, y, w, h int)          {}
+func (m *completeMockScreen) GetClip() (int, int, int, int)   { return 0, 0, 80, 24 }
+func (m *completeMockScreen) SetAttributes(tcell.AttrMask)    {}
+func (m *completeMockScreen) Beep() error                     { return nil }
+func (m *completeMockScreen) SetTitle(string)                 {}
+func (m *completeMockScreen) Stop()                           {}
+func (m *completeMockScreen) Suspend() error                  { return nil }
+func (m *completeMockScreen) Pause()                          {}
+func (m *completeMockScreen) Resume() error                   { return nil }
+func (m *completeMockScreen) IsPaused() bool                  { return false }
+func (m *completeMockScreen) Put(x, y int, s string, style tcell.Style) (string, int) {
+	return s, len(s)
+}
+
+func (m *completeMockScreen) eventQueue() chan tcell.Event {
+	if m.events == nil {
+		m.events = make(chan tcell.Event, 128)
+	}
+	return m.events
+}
 
 func init() {
 	openStart = func(string) error { return nil }
+}
+
+// execCmdForTest runs a tview.Cmd and handles the resulting Msg.
+// If the Msg is a setFocusMsg (from tview.SetFocus), it applies focus via reflection.
+// If the Msg is a batch, it recursively processes each sub-cmd.
+func execCmdForTest(app *tview.Application, cmd tview.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if msg == nil {
+		return
+	}
+	msgVal := reflect.ValueOf(msg).Elem()
+	typeName := msgVal.Type().Name()
+	switch typeName {
+	case "setFocusMsg":
+		targetField := msgVal.FieldByName("target")
+		if targetField.IsValid() && !targetField.IsNil() {
+			target := reflect.NewAt(targetField.Type(), unsafe.Pointer(targetField.UnsafeAddr())).Elem().Interface().(tview.Model)
+			setFocusForTest(app, target)
+		}
+	case "batchMsg":
+		cmdsField := msgVal.FieldByName("cmds")
+		if cmdsField.IsValid() && cmdsField.Kind() == reflect.Slice {
+			for j := 0; j < cmdsField.Len(); j++ {
+				cmdFn := reflect.NewAt(cmdsField.Type().Elem(), unsafe.Pointer(cmdsField.Index(j).UnsafeAddr())).Elem().Interface().(tview.Cmd)
+				execCmdForTest(app, cmdFn)
+			}
+		}
+	}
+}
+
+func setFocusForTest(app *tview.Application, target tview.Model) {
+	if app == nil || target == nil {
+		return
+	}
+
+	appValue := reflect.ValueOf(app).Elem()
+	focusField := appValue.FieldByName("focus")
+	current := reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem()
+	if current.IsValid() && !current.IsNil() {
+		if focused, ok := current.Interface().(tview.Model); ok && focused != nil {
+			focused.Blur()
+		}
+	}
+
+	targetValue := reflect.ValueOf(target)
+	reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem().Set(targetValue)
+	target.Focus(func(next tview.Model) {
+		setFocusForTest(app, next)
+	})
+	time.Sleep(10 * time.Millisecond)
 }
 
 type mockTransport struct {
@@ -167,8 +234,8 @@ func newTestModelWithTransport(transport *mockTransport) *Model {
 
 func newTestModelWithTokenAndTransport(token string, transport *mockTransport) *Model {
 	cfg, _ := config.Load("")
-	app := tview.NewApplication()
-	m := NewView(app, cfg, token)
+	app := tview.NewApplication(tview.WithScreen(&completeMockScreen{}))
+	m := NewModel(app, cfg, token)
 
 	driver := httpdriver.WrapClient(http.Client{Transport: transport})
 	apiClient := api.NewCustomClient(token, httputil.NewClientWithDriver(driver))
@@ -176,10 +243,30 @@ func newTestModelWithTokenAndTransport(token string, transport *mockTransport) *
 	m.state = ningen.FromState(s)
 	m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1}, false)
 
-	app.SetScreen(&completeMockScreen{})
-	go app.Run()
+	initTestApplication(app)
 
 	return m
+}
+
+func initTestApplication(app *tview.Application) {
+	if app == nil {
+		return
+	}
+
+	appValue := reflect.ValueOf(app).Elem()
+	msgsField := appValue.FieldByName("msgs")
+	msgsValue := reflect.NewAt(msgsField.Type(), unsafe.Pointer(msgsField.UnsafeAddr())).Elem()
+	if msgsValue.IsNil() {
+		msgsValue.Set(reflect.MakeChan(msgsField.Type(), 128))
+		msgs := msgsValue.Interface().(chan tview.Msg)
+		go func(ch chan tview.Msg) {
+			for {
+				if _, ok := <-ch; !ok {
+					return
+				}
+			}
+		}(msgs)
+	}
 }
 
 func newTestModelWithMessages(msgs []discord.Message) *Model {
@@ -206,7 +293,6 @@ func (m *mockEmoteScreen) Get(x, y int) (string, tcell.Style, int) {
 	}
 	return " ", style, 1
 }
-
 
 type mockTty struct {
 	strings.Builder

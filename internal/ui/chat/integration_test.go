@@ -17,7 +17,7 @@ func TestComplexScenario_SelectGuildAndChannel(t *testing.T) {
 	cfg, _ := config.Load("")
 
 	// Create the view
-	view := NewView(app, cfg, "test-token")
+	view := NewModel(app, cfg, "test-token")
 
 	// Initialize mock state
 	s := state.NewFromSession(session.New(""), defaultstore.New())
@@ -28,18 +28,18 @@ func TestComplexScenario_SelectGuildAndChannel(t *testing.T) {
 	
 	// Initially, focus should be on the guilds tree
 	// Simulate pressing 'j' (Down) in guilds tree
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone))
 	
 	// Simulate pressing 'Enter' to select a guild/channel
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 	
 	// Simulate switching focus to message input
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlI, "", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyCtrlI, "", tcell.ModNone))
 	
 	// Verify if we can type in message input
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "h", tcell.ModNone))
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyRune, "h", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))
 	
 	// Simulate opening the channels picker
-	view.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone))
+	view.Update(tcell.NewEventKey(tcell.KeyCtrlK, "", tcell.ModNone))
 }

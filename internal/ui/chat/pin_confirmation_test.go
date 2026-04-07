@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -42,7 +42,7 @@ func TestMessagesList_HandleEvent_PinKeyOpensConfirmationDialog(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
@@ -77,16 +77,16 @@ func TestMessagesList_PinConfirmation_TabThenEnterCancels(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
 
-	m.Focus(func(p tview.Primitive) {
-		m.app.SetFocus(p)
+	m.Focus(func(p tview.Model) {
+		setFocusForTest(m.app, p)
 	})
-	executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)))
-	executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+	executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)))
+	executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 
 	if m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to close after cancelling")
@@ -115,15 +115,15 @@ func TestMessagesList_PinConfirmation_EnterPinsSelectedMessage(t *testing.T) {
 	})
 	ml.SetCursor(0)
 
-	ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
+	ml.Update(tcell.NewEventKey(tcell.KeyRune, "p", tcell.ModNone))
 	if !m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to be visible")
 	}
 
-	m.Focus(func(p tview.Primitive) {
-		m.app.SetFocus(p)
+	m.Focus(func(p tview.Model) {
+		setFocusForTest(m.app, p)
 	})
-	executeModelCommand(m, m.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
+	executeModelCommand(m, m.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)))
 
 	if m.HasLayer(confirmModalLayerName) {
 		t.Fatal("expected pin confirmation dialog to close after confirming")
@@ -136,7 +136,7 @@ func TestMessagesList_PinConfirmation_EnterPinsSelectedMessage(t *testing.T) {
 	}
 }
 
-func renderPrimitiveLines(t *testing.T, primitive tview.Primitive) []string {
+func renderPrimitiveLines(t *testing.T, primitive tview.Model) []string {
 	t.Helper()
 
 	if primitive == nil {

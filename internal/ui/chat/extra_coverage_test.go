@@ -3,9 +3,9 @@ package chat
 import (
 	"testing"
 
-	"github.com/ayn2op/discordo/pkg/picker"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
+	"github.com/eyalmazuz/tview/picker"
 )
 
 func TestAttachmentsPicker_Extra(t *testing.T) {
@@ -22,7 +22,7 @@ func TestAttachmentsPicker_Extra(t *testing.T) {
 				},
 			},
 		})
-		ap.onSelected(picker.Item{Reference: 0})
+		ap.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 0}})
 		if !opened {
 			t.Errorf("expected open function to be called")
 		}
@@ -32,17 +32,17 @@ func TestAttachmentsPicker_Extra(t *testing.T) {
 func TestReactionPicker_Extra(t *testing.T) {
 	m := newMockChatModel()
 	ml := m.messagesList
-	rp := newReactionPicker(m.cfg, m, ml, ml.imageCache)
+	rp := newReactionPicker(m.cfg, m, ml)
 
 	t.Run("onSelected_InvalidReference", func(t *testing.T) {
-		rp.onSelected(picker.Item{Reference: "invalid"})
-		rp.onSelected(picker.Item{Reference: -1})
-		rp.onSelected(picker.Item{Reference: 100})
+		rp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: "invalid"}})
+		rp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: -1}})
+		rp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 100}})
 	})
 
 	t.Run("onSelected_NoSelectedMessage", func(t *testing.T) {
 		rp.items = []discord.Emoji{{Name: "test"}}
-		rp.onSelected(picker.Item{Reference: 0})
+		rp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 0}})
 	})
 }
 
@@ -75,7 +75,7 @@ func TestMessageSearchPopup_Extra(t *testing.T) {
 		if sp.buildItem(0, 0) != nil {
 			t.Errorf("Expected nil for empty results and no status")
 		}
-		
+
 		sp.status = "Searching..."
 		if sp.buildItem(0, 0) == nil {
 			t.Errorf("Expected status item")

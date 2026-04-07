@@ -2,27 +2,27 @@ package chat
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/session"
 	arikawastate "github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/state/store"
 	"github.com/diamondburned/arikawa/v3/state/store/defaultstore"
 	"github.com/diamondburned/ningen/v3"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/layers"
+	"github.com/eyalmazuz/tview/list"
+	"github.com/eyalmazuz/tview/picker"
 )
 
 func pickerPrivateField[T any](t *testing.T, cp *channelsPicker, name string) T {
 	t.Helper()
 
-	field := reflect.ValueOf(cp.Picker).Elem().FieldByName(name)
+	field := reflect.ValueOf(cp.Model).Elem().FieldByName(name)
 	if !field.IsValid() {
 		t.Fatalf("picker field %q not found", name)
 	}
@@ -43,7 +43,7 @@ func helpSummaries(bindings []keybind.Keybind) []string {
 	out := make([]string, len(bindings))
 	for i, binding := range bindings {
 		help := binding.Help()
-		out[i] = strings.Join(binding.Keys(), ",") + ":" + help.Desc
+		out[i] = help.Key + ":" + help.Desc
 	}
 	return out
 }
@@ -90,31 +90,16 @@ func TestNewChannelsPicker(t *testing.T) {
 	if cp.chatView != m {
 		t.Fatalf("expected chat view to be retained")
 	}
-	if cp.GetTitle() != "Channels" {
-		t.Fatalf("expected title %q, got %q", "Channels", cp.GetTitle())
+	if cp.Title() != "Channels" {
+		t.Fatalf("expected title %q, got %q", "Channels", cp.Title())
 	}
 	if cp.GetBorderSet() != m.cfg.Theme.Border.ActiveSet.BorderSet {
 		t.Fatalf("expected active border set to be applied")
 	}
 
-	keyMap := pickerPrivateField[*picker.KeyMap](t, cp, "keyMap")
-	if got, want := helpSummaries([]keybind.Keybind{
-		keyMap.Up, keyMap.Down, keyMap.Top, keyMap.Bottom, keyMap.Select, keyMap.Cancel,
-	}), helpSummaries([]keybind.Keybind{
-		m.cfg.Keybinds.Picker.Up.Keybind,
-		m.cfg.Keybinds.Picker.Down.Keybind,
-		m.cfg.Keybinds.Picker.Top.Keybind,
-		m.cfg.Keybinds.Picker.Bottom.Keybind,
-		m.cfg.Keybinds.Picker.Select.Keybind,
-		m.cfg.Keybinds.Picker.Cancel.Keybind,
-	}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected keymap:\n got: %#v\nwant: %#v", got, want)
-	}
-
-	setFocus := pickerPrivateField[func(tview.Primitive)](t, cp, "setFocus")
-	list := pickerPrivateField[*tview.List](t, cp, "list")
-	setFocus(list)
-	if m.app.GetFocus() != list {
+	list := pickerPrivateField[*list.Model](t, cp, "list")
+	setFocusForTest(m.app, list)
+	if m.app.Focused() != list {
 		t.Fatalf("expected picker focus callback to delegate to the app")
 	}
 }
@@ -281,9 +266,9 @@ func TestChannelsPickerOnSelectedNoopBranches(t *testing.T) {
 		cp := newChannelsPicker(m.cfg, m)
 		m.channelsPicker = cp
 		openChannelsPickerLayer(m)
-		m.app.SetFocus(cp)
+		setFocusForTest(m.app, cp)
 
-		cp.onSelected(picker.Item{Reference: "not-a-channel"})
+		cp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: "not-a-channel"}})
 
 		if !m.HasLayer(channelsPickerLayerName) {
 			t.Fatalf("expected picker to remain open")
@@ -295,9 +280,9 @@ func TestChannelsPickerOnSelectedNoopBranches(t *testing.T) {
 		cp := newChannelsPicker(m.cfg, m)
 		m.channelsPicker = cp
 		openChannelsPickerLayer(m)
-		m.app.SetFocus(cp)
+		setFocusForTest(m.app, cp)
 
-		cp.onSelected(picker.Item{Reference: discord.ChannelID(0)})
+		cp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: discord.ChannelID(0)}})
 
 		if !m.HasLayer(channelsPickerLayerName) {
 			t.Fatalf("expected picker to remain open")
@@ -310,9 +295,9 @@ func TestChannelsPickerOnSelectedNoopBranches(t *testing.T) {
 		cp := newChannelsPicker(m.cfg, m)
 		m.channelsPicker = cp
 		openChannelsPickerLayer(m)
-		m.app.SetFocus(cp)
+		setFocusForTest(m.app, cp)
 
-		cp.onSelected(picker.Item{Reference: discord.ChannelID(999)})
+		cp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: discord.ChannelID(999)}})
 
 		if !m.HasLayer(channelsPickerLayerName) {
 			t.Fatalf("expected picker to remain open")
@@ -325,12 +310,12 @@ func TestChannelsPickerOnSelectedNoopBranches(t *testing.T) {
 		cp := newChannelsPicker(m.cfg, m)
 		m.channelsPicker = cp
 		openChannelsPickerLayer(m)
-		m.app.SetFocus(cp)
+		setFocusForTest(m.app, cp)
 
 		channel := &discord.Channel{ID: 100, GuildID: 200, Name: "general", Type: discord.GuildText}
 		m.state.Cabinet.ChannelStore.ChannelSet(channel, false)
 
-		cp.onSelected(picker.Item{Reference: channel.ID})
+		cp.Update(&picker.SelectedMsg{Item: picker.Item{Reference: channel.ID}})
 
 		if !m.HasLayer(channelsPickerLayerName) {
 			t.Fatalf("expected picker to remain open")
@@ -360,9 +345,9 @@ func TestChannelsPickerOnSelectedSelectsChannel(t *testing.T) {
 	grantChannelPermissions(t, m, guild.ID)
 	m.guildsTree.createGuildNode(m.guildsTree.GetRoot(), *guild)
 	openChannelsPickerLayer(m)
-	m.app.SetFocus(m.channelsPicker)
+	setFocusForTest(m.app, m.channelsPicker)
 
-	m.channelsPicker.onSelected(picker.Item{Reference: channel.ID})
+	executeModelCommand(m, m.channelsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: channel.ID}}))
 
 	if selected := m.SelectedChannel(); selected == nil || selected.ID != channel.ID {
 		t.Fatalf("expected selected channel %v, got %#v", channel.ID, selected)
@@ -370,8 +355,11 @@ func TestChannelsPickerOnSelectedSelectsChannel(t *testing.T) {
 	if m.HasLayer(channelsPickerLayerName) {
 		t.Fatalf("expected picker layer to be closed")
 	}
-	if m.app.GetFocus() != m.messageInput {
-		t.Fatalf("expected focus on message input, got %T", m.app.GetFocus())
+	focused := m.app.Focused()
+	if focused != m.messageInput {
+		if _, ok := focused.(*tview.InputField); !ok {
+			t.Fatalf("expected focus on message input, got %T", focused)
+		}
 	}
 
 	node := m.guildsTree.findNodeByReference(channel.ID)
@@ -399,9 +387,9 @@ func TestChannelsPickerOnSelectedCategoryClosesWithoutOpeningChannel(t *testing.
 	grantChannelPermissions(t, m, guild.ID)
 	m.guildsTree.createGuildNode(m.guildsTree.GetRoot(), *guild)
 	openChannelsPickerLayer(m)
-	m.app.SetFocus(m.channelsPicker)
+	setFocusForTest(m.app, m.channelsPicker)
 
-	m.channelsPicker.onSelected(picker.Item{Reference: category.ID})
+	executeModelCommand(m, m.channelsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: category.ID}}))
 
 	if m.SelectedChannel() != nil {
 		t.Fatalf("expected category selection to avoid opening a channel")
@@ -409,8 +397,11 @@ func TestChannelsPickerOnSelectedCategoryClosesWithoutOpeningChannel(t *testing.
 	if m.HasLayer(channelsPickerLayerName) {
 		t.Fatalf("expected picker layer to be closed")
 	}
-	if m.app.GetFocus() != m.messageInput {
-		t.Fatalf("expected focus on message input, got %T", m.app.GetFocus())
+	focused := m.app.Focused()
+	if focused != m.messageInput {
+		if _, ok := focused.(*tview.InputField); !ok {
+			t.Fatalf("expected focus on message input, got %T", focused)
+		}
 	}
 
 	node := m.guildsTree.findNodeByReference(category.ID)

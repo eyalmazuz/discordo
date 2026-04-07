@@ -93,7 +93,7 @@ func TestMessagesList_PermissionGatedActions_Parity(t *testing.T) {
 		ml.SetCursor(0)
 		
 		ml.edit()
-		if m.app.GetFocus() == m.messageInput {
+		if m.app.Focused() == m.messageInput {
 			t.Errorf("Expected focus NOT to move to message input for someone else's message")
 		}
 	})

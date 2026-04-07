@@ -66,6 +66,8 @@ receive = true
 [inline_images]
 # Whether to render image attachments inline. Requires a true-color terminal.
 enabled = false
+# Whether to enable animations (GIF) or not.
+animations = true
 # Maximum dimensions in cells for rendered images.
 max_width = 60
 max_height = 20

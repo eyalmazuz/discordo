@@ -314,7 +314,7 @@ func TestGuildsTree_Functional(t *testing.T) {
 	// if m.SelectedChannel() != nil { ... }
 }
 
-func TestGuildsTree_HandleEvent(t *testing.T) {
+func TestGuildsTree_Update(t *testing.T) {
 	m := newMockChatModel()
 	gt := newGuildsTree(m.cfg, m)
 	
@@ -324,20 +324,20 @@ func TestGuildsTree_HandleEvent(t *testing.T) {
 	gt.GetRoot().AddChild(node)
 	gt.SetCurrentNode(node)
 	
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))
 	
 	// Test Navigation
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone)) // Top
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "G", tcell.ModNone)) // Bottom
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone)) // Down
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "k", tcell.ModNone)) // Up
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, "g", tcell.ModNone)) // Top
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, "G", tcell.ModNone)) // Bottom
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModNone)) // Down
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, "k", tcell.ModNone)) // Up
 	
 	// Test ToggleExpand
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyRune, " ", tcell.ModNone))
+	gt.Update(tcell.NewEventKey(tcell.KeyRune, " ", tcell.ModNone))
 	
 	// Test SelectCurrent
-	gt.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	gt.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 
 	// Test TreeViewSelectedEvent
-	gt.HandleEvent(&tview.TreeViewSelectedEvent{Node: node})
+	gt.Update(&tview.TreeViewSelectedMsg{Node: node})
 }

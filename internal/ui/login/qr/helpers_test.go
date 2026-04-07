@@ -7,7 +7,7 @@ import (
 	"github.com/gdamore/tcell/v3"
 )
 
-func requireCommand(t *testing.T, cmd tview.Command) tview.Command {
+func requireCommand(t *testing.T, cmd tview.Cmd) tview.Cmd {
 	t.Helper()
 	if cmd == nil {
 		t.Fatal("expected command, got nil")
@@ -15,7 +15,7 @@ func requireCommand(t *testing.T, cmd tview.Command) tview.Command {
 	return cmd
 }
 
-func runCommand(t *testing.T, cmd tview.Command) tcell.Event {
+func runCommand(t *testing.T, cmd tview.Cmd) tcell.Event {
 	t.Helper()
 	return requireCommand(t, cmd)()
 }

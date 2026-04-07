@@ -26,20 +26,23 @@ func (m *Model) FullHelp() [][]keybind.Keybind {
 }
 
 func (m *Model) activeKeyMap() help.KeyMap {
+	if m == nil || m.app == nil {
+		return nil
+	}
 	if m.GetVisible(channelsPickerLayerName) {
 		return m.channelsPicker
 	}
-	if v.GetVisible(messageSearchLayerName) {
-		return v.messageSearch
+	if m.GetVisible(messageSearchLayerName) {
+		return m.messageSearch
 	}
-	if v.GetVisible(pinnedMessagesLayerName) {
-		return v.pinnedMessages
+	if m.GetVisible(pinnedMessagesLayerName) {
+		return m.pinnedMessages
 	}
-	if v.GetVisible(reactionPickerLayerName) {
-		return v.messagesList.reactionPicker
+	if m.GetVisible(reactionPickerLayerName) {
+		return m.messagesList.reactionPicker
 	}
-	if v.GetVisible(attachmentsListLayerName) {
-		return v.messagesList.attachmentsPicker
+	if m.GetVisible(attachmentsPickerLayerName) {
+		return m.messagesList.attachmentsPicker
 	}
 
 	switch m.app.Focused() {
@@ -61,7 +64,7 @@ func (m *Model) baseShortHelp() []keybind.Keybind {
 		short = append(short, cfg.FocusMessageInput.Keybind)
 	}
 	short = append(short, cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind)
-	if v.SelectedChannel() != nil {
+	if m.SelectedChannel() != nil {
 		short = append(short, cfg.ToggleMessageSearch.Keybind, cfg.TogglePinnedMessages.Keybind)
 	}
 	return short
@@ -74,7 +77,7 @@ func (m *Model) baseFullHelp() [][]keybind.Keybind {
 		focus = append(focus, cfg.FocusMessageInput.Keybind)
 	}
 	toggles := []keybind.Keybind{cfg.ToggleGuildsTree.Keybind, cfg.ToggleChannelsPicker.Keybind}
-	if v.SelectedChannel() != nil {
+	if m.SelectedChannel() != nil {
 		toggles = append(toggles, cfg.ToggleMessageSearch.Keybind, cfg.TogglePinnedMessages.Keybind)
 	}
 	return [][]keybind.Keybind{

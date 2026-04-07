@@ -3,10 +3,10 @@ package chat
 import (
 	"testing"
 
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/keybind"
 	"github.com/eyalmazuz/tview/layers"
-	"github.com/diamondburned/arikawa/v3/discord"
 )
 
 func containsKeybind(bindings []keybind.Keybind, want keybind.Keybind) bool {
@@ -34,18 +34,18 @@ func TestModelActiveKeyMap(t *testing.T) {
 		t.Fatalf("expected nil active key map without app, got %T", got)
 	}
 
-	m.app.SetFocus(m.guildsTree)
+	setFocusForTest(m.app, m.guildsTree)
 	if got := m.activeKeyMap(); got != m.guildsTree {
 		t.Fatalf("expected guildsTree key map, got %T", got)
 	}
 
-	m.app.SetFocus(m.messagesList)
+	setFocusForTest(m.app, m.messagesList)
 	if got := m.activeKeyMap(); got != m.messagesList {
 		t.Fatalf("expected messagesList key map, got %T", got)
 	}
 
 	m.messageInput.SetDisabled(false)
-	m.app.SetFocus(m.messageInput)
+	setFocusForTest(m.app, m.messageInput)
 	if got := m.activeKeyMap(); got != m.messageInput {
 		t.Fatalf("expected messageInput key map, got %T", got)
 	}
@@ -74,13 +74,13 @@ func TestModelActiveKeyMap(t *testing.T) {
 	}
 	m.RemoveLayer(reactionPickerLayerName)
 
-	m.AddLayer(tview.NewBox(), layers.WithName(attachmentsListLayerName), layers.WithVisible(true))
+	m.AddLayer(tview.NewBox(), layers.WithName(attachmentsPickerLayerName), layers.WithVisible(true))
 	if got := m.activeKeyMap(); got != m.messagesList.attachmentsPicker {
 		t.Fatalf("expected attachments picker key map, got %T", got)
 	}
 
-	m.RemoveLayer(attachmentsListLayerName)
-	m.app.SetFocus(tview.NewBox())
+	m.RemoveLayer(attachmentsPickerLayerName)
+	setFocusForTest(m.app, tview.NewBox())
 	if got := m.activeKeyMap(); got != nil {
 		t.Fatalf("expected nil key map for unrelated focus target, got %T", got)
 	}
@@ -121,7 +121,7 @@ func TestModelShortHelpAndFullHelp(t *testing.T) {
 	m := newTestModel()
 	m.messageInput.SetDisabled(false)
 	m.SetSelectedChannel(&discord.Channel{ID: 1, Type: discord.GuildText})
-	m.app.SetFocus(m.messagesList)
+	setFocusForTest(m.app, m.messagesList)
 
 	short := m.ShortHelp()
 	if len(short) < len(m.baseShortHelp()) {

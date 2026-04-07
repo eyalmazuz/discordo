@@ -17,7 +17,7 @@ func TestLoginModelCopyError(t *testing.T) {
 	})
 
 	m := newTestLoginModel(t)
-	m.HandleEvent(tcell.NewEventError(errors.New("boom")))
+	m.Update(tcell.NewEventError(errors.New("boom")))
 
 	writeClipboard = func(format clipkg.Format, data []byte) error {
 		if format != clipkg.FmtText {
@@ -29,7 +29,7 @@ func TestLoginModelCopyError(t *testing.T) {
 		return errors.New("copy failed")
 	}
 
-	cmd := m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 0})
+	cmd := m.Update(&tview.ModalDoneMsg{ButtonIndex: 0})
 	event := runCommand(t, cmd)
 	if _, ok := event.(*tcell.EventError); !ok {
 		t.Fatalf("expected clipboard write failure to return EventError, got %T", event)

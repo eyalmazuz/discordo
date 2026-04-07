@@ -3,144 +3,318 @@ package chat
 import (
 	"fmt"
 	"log/slog"
-	"strings"
+	"net/http"
+	"reflect"
+	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
+	httpkg "github.com/ayn2op/discordo/internal/http"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
-	"github.com/ayn2op/discordo/internal/markdown"
-	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/discordo/pkg/picker"
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/help"
 	"github.com/eyalmazuz/tview/keybind"
-	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview/list"
+	"github.com/eyalmazuz/tview/picker"
 	"github.com/gdamore/tcell/v3"
 )
 
 type reactionPicker struct {
-	*picker.Picker
+	*picker.Model
 	cfg          *config.Config
 	chatView     *Model
 	messagesList *messagesList
-	imageCache   *imgpkg.Cache
-	items        []discord.Emoji
 
+	items []discord.Emoji
+
+	listModel      *list.Model
+	imageCache     *imgpkg.Cache
 	emoteItemByKey map[string]*imageItem
 	nextKittyID    uint32
+	useKitty       bool
+	cellW          int
+	cellH          int
+	pendingDeletes []uint32
 }
 
 var _ help.KeyMap = (*reactionPicker)(nil)
 
-func newReactionPicker(cfg *config.Config, chatView *Model, messagesList *messagesList, imageCache *imgpkg.Cache) *reactionPicker {
+func newReactionPicker(cfg *config.Config, chatView *Model, messagesList *messagesList) *reactionPicker {
 	rp := &reactionPicker{
-		Picker:         picker.New(),
+		Model:          picker.NewModel(),
 		cfg:            cfg,
 		chatView:       chatView,
 		messagesList:   messagesList,
-		imageCache:     imageCache,
+		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
 		emoteItemByKey: make(map[string]*imageItem),
-		nextKittyID:    1,
+		nextKittyID:    200000,
+		useKitty:       resolveKittyMode(cfg.InlineImages.Renderer),
 	}
-	rp.SetFocusFunc(func(p tview.Primitive) {
-		chatView.app.SetFocus(p)
-	})
-	rp.Box = ui.ConfigureBox(tview.NewBox(), &cfg.Theme)
-	rp.
-		SetBlurFunc(nil).
-		SetFocusFunc(nil).
-		SetBorderSet(cfg.Theme.Border.ActiveSet.BorderSet).
-		SetBorderStyle(cfg.Theme.Border.ActiveStyle.Style).
-		SetTitleStyle(cfg.Theme.Title.ActiveStyle.Style).
-		SetFooterStyle(cfg.Theme.Footer.ActiveStyle.Style)
-
-	rp.SetTitle("Reactions")
-	rp.SetSelectedFunc(rp.onSelected)
-	rp.SetCancelFunc(rp.close)
-	rp.SetKeyMap(&picker.KeyMap{
-		Cancel:      cfg.Keybinds.Picker.Cancel.Keybind,
-		ToggleFocus: cfg.Keybinds.Picker.ToggleFocus.Keybind,
-		Up:          cfg.Keybinds.Picker.Up.Keybind,
-		Down:        cfg.Keybinds.Picker.Down.Keybind,
-		Top:         cfg.Keybinds.Picker.Top.Keybind,
-		Bottom:      cfg.Keybinds.Picker.Bottom.Keybind,
-		Select:      cfg.Keybinds.Picker.Select.Keybind,
-	})
-	rp.SetScrollBarVisibility(cfg.Theme.ScrollBar.Visibility.ScrollBarVisibility)
-	rp.SetScrollBar(tview.NewScrollBar().
-		SetTrackStyle(cfg.Theme.ScrollBar.TrackStyle.Style).
-		SetThumbStyle(cfg.Theme.ScrollBar.ThumbStyle.Style).
-		SetGlyphSet(cfg.Theme.ScrollBar.GlyphSet.GlyphSet))
+	ConfigurePicker(rp.Model, cfg, "Reactions")
+	rp.listModel = pickerListModel(rp.Model)
+	if rp.listModel != nil {
+		rp.listModel.SetScrollBarVisibility(list.ScrollBarVisibilityNever)
+	}
+	rp.refreshPreviewBuilder()
 	return rp
 }
 
 func (rp *reactionPicker) SetItems(items []discord.Emoji) {
 	rp.items = append(rp.items[:0], items...)
-	rp.ClearItems()
+	rp.rebuildPickerItems()
+}
 
-	for i, emoji := range items {
-		rp.AddItem(picker.Item{
+func (rp *reactionPicker) rebuildPickerItems() {
+	var pItems picker.Items
+	for i, emoji := range rp.items {
+		pItems = append(pItems, picker.Item{
 			Text:       emoji.Name,
-			Line:       rp.lineForEmoji(emoji),
 			FilterText: emoji.Name,
 			Reference:  i,
 		})
 	}
-
-	rp.SetFooter("Tab focus")
-	rp.Update()
+	rp.Model.SetItems(pItems)
+	rp.refreshPreviewBuilder()
 }
 
-func (rp *reactionPicker) onSelected(item picker.Item) {
+func (rp *reactionPicker) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *picker.SelectedMsg:
+		return rp.onSelected(msg.Item)
+	case *picker.CancelMsg:
+		return rp.close()
+	}
+	cmd := rp.Model.Update(msg)
+	rp.refreshPreviewBuilder()
+	return cmd
+}
+
+func (rp *reactionPicker) onSelected(item picker.Item) tview.Cmd {
 	index, ok := item.Reference.(int)
 	if !ok || index < 0 || index >= len(rp.items) {
-		return
+		return nil
 	}
 
 	message, err := rp.messagesList.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
 	emoji := rp.items[index]
-	if err := rp.chatView.state.React(message.ChannelID, message.ID, emoji.APIString()); err != nil {
-		slog.Error("failed to react to message", "channel_id", message.ChannelID, "message_id", message.ID, "emoji", emoji.Name, "err", err)
-		return
-	}
+	channelID := message.ChannelID
+	messageID := message.ID
+	apiString := emoji.APIString()
+	emojiName := emoji.Name
 
-	rp.close()
+	closeCmd := rp.close()
+
+	reactCmd := func() tview.Msg {
+		if err := rp.chatView.state.React(channelID, messageID, apiString); err != nil {
+			slog.Error("failed to react to message", "channel_id", channelID, "message_id", messageID, "emoji", emojiName, "err", err)
+		}
+		return nil
+	}
+	return tview.Batch(closeCmd, reactCmd)
 }
 
-func (rp *reactionPicker) close() {
+func (rp *reactionPicker) close() tview.Cmd {
+	for _, item := range rp.emoteItemByKey {
+		if item.kittyPlaced {
+			rp.pendingDeletes = append(rp.pendingDeletes, item.kittyID)
+		}
+	}
+	clear(rp.emoteItemByKey)
 	rp.chatView.RemoveLayer(reactionPickerLayerName)
 	if rp.messagesList != nil {
 		rp.messagesList.pendingFullClear = true
 	}
-	rp.chatView.app.SetFocus(rp.messagesList)
+	return tview.SetFocus(rp.messagesList)
 }
 
-func (rp *reactionPicker) previewItem(emoji discord.Emoji) *imageItem {
-	if !emoji.ID.IsValid() {
+func (rp *reactionPicker) Draw(screen tcell.Screen) {
+	if rp.cfg.InlineImages.Enabled && rp.useKitty {
+		rp.updateCellDimensions(screen)
+	}
+	for _, item := range rp.emoteItemByKey {
+		item.drawnThisFrame = false
+	}
+	rp.Model.Draw(screen)
+}
+
+func (rp *reactionPicker) AfterDraw(screen tcell.Screen) {
+	if !rp.cfg.InlineImages.Enabled || !rp.useKitty {
+		return
+	}
+	tty, ok := screen.Tty()
+	if !ok {
+		return
+	}
+
+	for key, item := range rp.emoteItemByKey {
+		if !item.drawnThisFrame {
+			if item.kittyPlaced {
+				rp.pendingDeletes = append(rp.pendingDeletes, item.kittyID)
+			}
+			delete(rp.emoteItemByKey, key)
+		}
+	}
+
+	fmt.Fprint(tty, "\x1b7")
+	for _, id := range rp.pendingDeletes {
+		_ = imgpkg.DeleteKittyByID(tty, id)
+	}
+	rp.pendingDeletes = rp.pendingDeletes[:0]
+	for _, item := range rp.emoteItemByKey {
+		item.flushKittyPlace(tty)
+	}
+	fmt.Fprint(tty, "\x1b8")
+}
+
+func (rp *reactionPicker) refreshPreviewBuilder() {
+	if rp.listModel == nil {
+		return
+	}
+	// Snapshot filtered items once per refresh instead of copying via
+	// reflection on every builder call (once per visible row per frame).
+	filtered := pickerFilteredItems(rp.Model)
+	rp.listModel.SetBuilder(func(index int, cursor int) list.Item {
+		if index < 0 || index >= len(filtered) {
+			return nil
+		}
+		ref, ok := filtered[index].Reference.(int)
+		if !ok || ref < 0 || ref >= len(rp.items) {
+			return nil
+		}
+		emoji := rp.items[ref]
+		style := tcell.StyleDefault
+		if index == cursor {
+			style = style.Reverse(true)
+		}
+		return &reactionPickerRowItem{
+			Box:     tview.NewBox(),
+			style:   style,
+			text:    emojiDisplayText(emoji),
+			preview: rp.previewItemFor(ref, emoji),
+		}
+	})
+}
+
+func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageItem {
+	if !rp.cfg.InlineImages.Enabled || !rp.useKitty {
 		return nil
 	}
-	return rp.previewItemByURL(emoji.EmojiURL())
-}
-
-func (rp *reactionPicker) previewItemByURL(key string) *imageItem {
+	if emoji.ID == 0 {
+		return nil
+	}
+	url := emoji.EmojiURL()
+	if url == "" {
+		return nil
+	}
+	key := fmt.Sprintf("picker:%s", url)
 	if item, ok := rp.emoteItemByKey[key]; ok {
-		item.useKitty = rp.useKitty()
 		return item
 	}
-
-	item := newImageItem(rp.imageCache, key, reactionPickerEmojiWidth, reactionPickerEmojiHeight, rp.useKitty(), rp.nextKittyID, rp.GetInnerRect, rp.messagesList.scheduleAnimatedRedraw)
+	kittyID := rp.nextKittyID
 	rp.nextKittyID++
+	item := newImageItem(rp.imageCache, url, inlineEmoteWidth, 1, rp.useKitty, kittyID, nil, nil)
+	item.lockKittyRegion = false
 	rp.emoteItemByKey[key] = item
-	rp.imageCache.Request(key, 0, 0, func() {
+	rp.imageCache.Request(url, 0, 0, func() {
 		if rp.chatView != nil && rp.chatView.app != nil {
-			rp.chatView.app.QueueUpdateDraw(func() {})
+			triggerRedraw(rp.chatView.app)
 		}
 	})
 	return item
+}
+
+func emojiDisplayText(emoji discord.Emoji) string {
+	if emoji.ID != 0 {
+		text := ":" + emoji.Name + ":"
+		if emoji.Animated {
+			text += " [animated]"
+		}
+		return text
+	}
+	return emoji.Name
+}
+
+func (rp *reactionPicker) updateCellDimensions(screen tcell.Screen) {
+	tty, ok := screen.Tty()
+	if !ok || tty == nil {
+		return
+	}
+	ws, err := tty.WindowSize()
+	if err != nil {
+		return
+	}
+	cw, ch := ws.CellDimensions()
+	if cw <= 0 || ch <= 0 {
+		return
+	}
+	if cw != rp.cellW || ch != rp.cellH {
+		rp.cellW = cw
+		rp.cellH = ch
+		for _, item := range rp.emoteItemByKey {
+			item.setCellDimensions(cw, ch)
+		}
+	}
+}
+
+func pickerListModel(model *picker.Model) *list.Model {
+	modelValue := reflect.ValueOf(model).Elem()
+	field := modelValue.FieldByName("list")
+	if !field.IsValid() || field.IsNil() {
+		return nil
+	}
+	return reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface().(*list.Model)
+}
+
+func pickerFilteredItems(model *picker.Model) picker.Items {
+	modelValue := reflect.ValueOf(model).Elem()
+	field := modelValue.FieldByName("filtered")
+	if !field.IsValid() {
+		return nil
+	}
+	items := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface().(picker.Items)
+	return append(picker.Items(nil), items...)
+}
+
+type reactionPickerRowItem struct {
+	*tview.Box
+	style   tcell.Style
+	text    string
+	preview *imageItem
+}
+
+func (i *reactionPickerRowItem) Height(width int) int { return 1 }
+
+func (i *reactionPickerRowItem) Draw(screen tcell.Screen) {
+	x, y, w, h := i.InnerRect()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	for col := 0; col < w; col++ {
+		screen.SetContent(x+col, y, ' ', nil, i.style)
+	}
+	textX := x
+	if i.preview != nil {
+		i.preview.drawnThisFrame = true
+		i.preview.SetRect(x, y, inlineEmoteWidth, 1)
+		i.preview.Draw(screen)
+		for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
+			screen.SetContent(x+offset, y, ' ', nil, i.style)
+		}
+		textX += inlineEmoteWidth + 1
+	}
+	col := textX
+	for _, r := range i.text {
+		if col >= x+w {
+			break
+		}
+		screen.SetContent(col, y, r, nil, i.style)
+		col++
+	}
 }
 
 func (rp *reactionPicker) ShortHelp() []keybind.Keybind {
@@ -153,103 +327,5 @@ func (rp *reactionPicker) FullHelp() [][]keybind.Keybind {
 	return [][]keybind.Keybind{
 		{cfg.Up.Keybind, cfg.Down.Keybind, cfg.Top.Keybind, cfg.Bottom.Keybind},
 		{cfg.ToggleFocus.Keybind, cfg.Select.Keybind, cfg.Cancel.Keybind},
-	}
-}
-
-const (
-	reactionPickerEmojiWidth  = inlineEmoteWidth
-	reactionPickerEmojiHeight = 1
-)
-
-func (rp *reactionPicker) useKitty() bool {
-	return rp.cfg.InlineImages.Enabled && rp.messagesList != nil && rp.messagesList.useKitty
-}
-
-func (rp *reactionPicker) Draw(screen tcell.Screen) {
-	if rp.useKitty() && rp.messagesList != nil {
-		rp.messagesList.updateCellDimensions(screen)
-		rp.prepareKittyItemsForFrame(screen)
-	}
-
-	rp.Picker.Draw(screen)
-	rp.scanAndDrawEmotes(screen)
-}
-
-func (rp *reactionPicker) prepareKittyItemsForFrame(screen tcell.Screen) {
-	for _, item := range rp.emoteItemByKey {
-		item.useKitty = true
-		item.drawnThisFrame = false
-		item.pendingPlace = false
-		item.unlockRegion(screen)
-		// The messages list clears all Kitty images from terminal memory while an
-		// overlay is visible. Keep the cached payload, but force a fresh upload and
-		// placement for the current frame.
-		item.kittyPlaced = false
-		item.kittyUploaded = false
-		if rp.messagesList.cellW > 0 {
-			item.setCellDimensions(rp.messagesList.cellW, rp.messagesList.cellH)
-		}
-	}
-}
-
-func (rp *reactionPicker) AfterDraw(screen tcell.Screen) {
-	if !rp.useKitty() {
-		return
-	}
-	tty, ok := screen.Tty()
-	if !ok {
-		return
-	}
-
-	fmt.Fprint(tty, "\x1b7")
-	for _, item := range rp.emoteItemByKey {
-		item.flushKittyPlace(tty)
-	}
-	fmt.Fprint(tty, "\x1b8")
-}
-
-func (rp *reactionPicker) lineForEmoji(emoji discord.Emoji) tview.Line {
-	labelStyle := rp.cfg.Theme.MessagesList.MessageStyle.Style
-	if !emoji.ID.IsValid() {
-		return tview.Line{
-			{Text: emoji.Name, Style: labelStyle},
-		}
-	}
-
-	return tview.Line{
-		{
-			Text:  markdown.CustomEmojiText(emoji.Name, rp.cfg.InlineImages.Enabled),
-			Style: rp.cfg.Theme.MessagesList.EmojiStyle.Style.Url(emoji.EmojiURL()),
-		},
-		{
-			Text:  " " + emoji.Name,
-			Style: labelStyle,
-		},
-	}
-}
-
-func (rp *reactionPicker) scanAndDrawEmotes(screen tcell.Screen) {
-	if !rp.cfg.InlineImages.Enabled {
-		return
-	}
-
-	x, y, w, h := rp.GetInnerRect()
-	for row := y; row < y+h; row++ {
-		for col := x; col < x+w; col++ {
-			_, style, _ := screen.Get(col, row)
-			_, url := style.GetUrl()
-			if !strings.HasPrefix(url, "https://cdn.discordapp.com/emojis/") {
-				continue
-			}
-
-			item := rp.previewItemByURL(url)
-			item.SetRect(col, row, reactionPickerEmojiWidth, reactionPickerEmojiHeight)
-			item.Draw(screen)
-
-			for offset := 1; offset < reactionPickerEmojiWidth && col+offset < x+w; offset++ {
-				screen.SetContent(col+offset, row, ' ', nil, tcell.StyleDefault)
-			}
-			col += reactionPickerEmojiWidth - 1
-		}
 	}
 }

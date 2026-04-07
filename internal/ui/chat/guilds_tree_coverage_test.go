@@ -34,7 +34,7 @@ func TestGuildsTree_loadChildren_DM(t *testing.T) {
 	m.state.Cabinet.GuildStore.GuildSet(&discord.Guild{ID: discord.NullGuildID}, false)
 
 	node := tview.NewTreeNode("Direct Messages").SetReference(dmNode{})
-	gt.loadChildren(node)
+	gt.onSelected(node)
 
 	if len(node.GetChildren()) == 0 {
 		// Try to force it by adding a child manually if mocking fails, 
@@ -68,7 +68,7 @@ func TestGuildsTree_loadChildren_ThreadContainer(t *testing.T) {
 	m.state.Cabinet.ChannelStore.ChannelSet(thread, false)
 
 	node := tview.NewTreeNode("general").SetReference(parentID)
-	gt.loadChildren(node)
+	gt.onSelected(node)
 
 	if len(node.GetChildren()) == 0 {
 		t.Log("Warning: Thread container had no children after loadChildren, forcing one for coverage")
@@ -78,12 +78,12 @@ func TestGuildsTree_loadChildren_ThreadContainer(t *testing.T) {
 
 func TestGuildsTree_getStyle_NilSafety(t *testing.T) {
 	gt := &guildsTree{chat: nil}
-	// getGuildNodeStyle calls gt.chat.state.GuildIsUnread
+	// guildNodeStyle calls gt.chat.state.GuildIsUnread
 	// We just want to ensure it doesn't panic if chat or state is nil
-	gt.getGuildNodeStyle(1)
+	gt.guildNodeStyle(discord.GuildID(1))
 
 	gt.chat = &Model{state: nil}
-	gt.getChannelNodeStyle(1)
+	gt.channelNodeStyle(discord.Channel{ID: 1})
 }
 
 func TestGuildsTree_createChannelNode_Permissions(t *testing.T) {

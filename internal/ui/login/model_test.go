@@ -42,11 +42,11 @@ func TestLoginModelHandleEventErrorAndModal(t *testing.T) {
 
 	m := newTestLoginModel(t)
 
-	if cmd := m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 1}); cmd != nil {
+	if cmd := m.Update(&tview.ModalDoneMsg{ButtonIndex: 1}); cmd != nil {
 		t.Fatalf("expected modal done without an error layer to return nil, got %T", cmd)
 	}
 
-	if cmd := m.HandleEvent(tcell.NewEventError(errors.New("boom"))); cmd == nil {
+	if cmd := m.Update(tcell.NewEventError(errors.New("boom"))); cmd == nil {
 		t.Fatal("expected error event to return a focus command")
 	}
 	if !m.HasLayer(errorLayerName) {
@@ -57,7 +57,7 @@ func TestLoginModelHandleEventErrorAndModal(t *testing.T) {
 	}
 
 	// Repeated errors while the modal is open should not duplicate the layer.
-	if cmd := m.HandleEvent(tcell.NewEventError(errors.New("again"))); cmd != nil {
+	if cmd := m.Update(tcell.NewEventError(errors.New("again"))); cmd != nil {
 		t.Fatalf("expected repeated error event to return nil, got %T", cmd)
 	}
 	if m.errorModalText != "boom" {
@@ -73,7 +73,7 @@ func TestLoginModelHandleEventErrorAndModal(t *testing.T) {
 		return nil
 	}
 
-	cmd := m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 0})
+	cmd := m.Update(&tview.ModalDoneMsg{ButtonIndex: 0})
 	if event := runCommand(t, cmd); event != nil {
 		t.Fatalf("expected successful copy command to return nil event, got %T", event)
 	}
@@ -81,7 +81,7 @@ func TestLoginModelHandleEventErrorAndModal(t *testing.T) {
 		t.Fatalf("expected copied modal text %q, got %q", "boom", copied)
 	}
 
-	if cmd := m.HandleEvent(&tview.ModalDoneEvent{ButtonIndex: 1}); cmd != nil {
+	if cmd := m.Update(&tview.ModalDoneMsg{ButtonIndex: 1}); cmd != nil {
 		t.Fatalf("expected close button to return nil, got %T", cmd)
 	}
 	if m.HasLayer(errorLayerName) {
@@ -116,7 +116,7 @@ func TestSetClipboardError(t *testing.T) {
 
 func TestLoginModelHandleEventFallsBackToLayers(t *testing.T) {
 	m := newTestLoginModel(t)
-	if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)); cmd != nil {
+	if cmd := m.Update(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)); cmd != nil {
 		t.Fatalf("expected regular key events to be delegated to layers, got %T", cmd)
 	}
 }

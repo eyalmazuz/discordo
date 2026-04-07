@@ -27,7 +27,7 @@ func TestConfigureBoxAndCentered(t *testing.T) {
 	if box == nil {
 		t.Fatal("expected ConfigureBox to return the box")
 	}
-	if got := box.GetBorders(); got != tview.BordersAll {
+	if got := box.Borders(); got != tview.BordersAll {
 		t.Fatalf("GetBorders() = %v, want BordersAll", got)
 	}
 	if got := box.GetBorderSet(); got != tview.BorderSetPlain() {

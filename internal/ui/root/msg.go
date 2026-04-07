@@ -9,6 +9,13 @@ import (
 	"github.com/gdamore/tcell/v3"
 )
 
+var (
+	getStoredToken    = keyring.GetToken
+	setStoredToken    = keyring.SetToken
+	deleteStoredToken = keyring.DeleteToken
+	initClipboardFn   = clipboard.Init
+)
+
 type tokenMsg struct {
 	tcell.EventTime
 	token string
@@ -24,7 +31,7 @@ type loginMsg struct{ tcell.EventTime }
 
 func getToken() tview.Cmd {
 	return func() tview.Msg {
-		token, err := keyring.GetToken()
+		token, err := getStoredToken()
 		if err != nil {
 			slog.Info("failed to retrieve token from keyring", "err", err)
 			return &loginMsg{}
@@ -35,9 +42,9 @@ func getToken() tview.Cmd {
 
 func setToken(token string) tview.Cmd {
 	return func() tview.Msg {
-		if err := keyring.SetToken(token); err != nil {
+		if err := setStoredToken(token); err != nil {
 			slog.Error("failed to set token to keyring", "err", err)
-			return nil
+			return tcell.NewEventError(err)
 		}
 		return nil
 	}
@@ -45,9 +52,9 @@ func setToken(token string) tview.Cmd {
 
 func deleteToken() tview.Cmd {
 	return func() tview.Msg {
-		if err := keyring.DeleteToken(); err != nil {
+		if err := deleteStoredToken(); err != nil {
 			slog.Error("failed to delete token from keyring", "err", err)
-			return nil
+			return tcell.NewEventError(err)
 		}
 		return nil
 	}
@@ -55,9 +62,9 @@ func deleteToken() tview.Cmd {
 
 func initClipboard() tview.Cmd {
 	return func() tview.Msg {
-		if err := clipboard.Init(); err != nil {
+		if err := initClipboardFn(); err != nil {
 			slog.Error("failed to init clipboard", "err", err)
-			return nil
+			return tcell.NewEventError(err)
 		}
 		return nil
 	}

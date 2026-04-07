@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/ayn2op/discordo/internal/config"
-	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -15,14 +15,14 @@ func TestModel_HandleEvent_SearchKeyOpensPopup(t *testing.T) {
 	channel := &discord.Channel{ID: 200, GuildID: 100, Type: discord.GuildText, Name: "general"}
 	m.SetSelectedChannel(channel)
 
-	m.HandleEvent(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
+	m.Update(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
 
 	if !m.HasLayer(messageSearchLayerName) {
 		t.Fatal("expected message search layer to be visible")
 	}
 
-	if m.app.GetFocus() != m.messageSearch.input {
-		t.Fatalf("expected focus on search input, got %T", m.app.GetFocus())
+	if m.app.Focused() != m.messageSearch.input {
+		t.Fatalf("expected focus on search input, got %T", m.app.Focused())
 	}
 }
 
@@ -59,9 +59,9 @@ func TestMessageSearchPopup_EnterRunsSearch(t *testing.T) {
 
 	sp.Prepare(channel, m.messagesList)
 	sp.input.SetText("hello")
-	m.app.SetFocus(sp.input)
+	setFocusForTest(m.app, sp.input)
 
-	sp.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	sp.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 
 	select {
 	case <-called:
@@ -116,7 +116,7 @@ func TestMessageSearchPopup_SelectCurrentJumpsToMessage(t *testing.T) {
 	}
 
 	m.AddLayer(sp, layers.WithName(messageSearchLayerName), layers.WithVisible(true))
-	m.app.SetFocus(sp.list)
+	setFocusForTest(m.app, sp.list)
 
 	sp.selectCurrent()
 
@@ -129,7 +129,7 @@ func TestMessageSearchPopup_SelectCurrentJumpsToMessage(t *testing.T) {
 	if m.HasLayer(messageSearchLayerName) {
 		t.Fatal("expected search popup to be closed after selecting a result")
 	}
-	if m.app.GetFocus() != m.messagesList {
-		t.Fatalf("expected focus to move to messages list, got %T", m.app.GetFocus())
+	if m.app.Focused() != m.messagesList {
+		t.Fatalf("expected focus to move to messages list, got %T", m.app.Focused())
 	}
 }

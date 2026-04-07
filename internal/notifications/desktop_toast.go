@@ -9,7 +9,7 @@ var (
 	beeepBeep   = beeep.Beep
 )
 
-func sendDesktopNotification(title string, message string, image string, playSound bool, duration int) error {
+func sendDesktopNotificationImpl(title string, message string, image string, playSound bool, duration int) error {
 	if err := beeepNotify(title, message, image); err != nil {
 		return err
 	}

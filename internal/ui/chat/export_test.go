@@ -19,17 +19,17 @@ func (m *Model) GetState() *ningen.State {
 }
 
 // GetGuildsTree returns the guilds tree for testing purposes.
-func (m *Model) GetGuildsTree() tview.Primitive {
+func (m *Model) GetGuildsTree() tview.Model {
 	return m.guildsTree
 }
 
 // GetMessagesList returns the messages list for testing purposes.
-func (m *Model) GetMessagesList() tview.Primitive {
+func (m *Model) GetMessagesList() tview.Model {
 	return m.messagesList
 }
 
 // GetMessageInput returns the message input for testing purposes.
-func (m *Model) GetMessageInput() tview.Primitive {
+func (m *Model) GetMessageInput() tview.Model {
 	return m.messageInput
 }
 

@@ -13,11 +13,13 @@ type errMsg struct {
 	err error
 }
 
+var writeClipboard = clipboard.Write
+
 func setClipboard(content string) tview.Cmd {
 	return func() tview.Msg {
-		if err := clipboard.Write(clipboard.FmtText, []byte(content)); err != nil {
+		if err := writeClipboard(clipboard.FmtText, []byte(content)); err != nil {
 			slog.Error("failed to copy error message", "err", err)
-			return nil
+			return tcell.NewEventError(err)
 		}
 		return nil
 	}

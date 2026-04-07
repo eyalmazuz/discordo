@@ -102,7 +102,7 @@
 import (
         "github.com/ayn2op/discordo/internal/config"
         "github.com/ayn2op/discordo/internal/ui"
-        "github.com/ayn2op/discordo/pkg/picker"
+        "github.com/eyalmazuz/tview/picker"
         "github.com/ayn2op/tview"
         "github.com/ayn2op/tview/help"
         "github.com/ayn2op/tview/keybind"
@@ -128,7 +128,7 @@ func newAttachmentsPicker(cfg *config.Config, chatView *Model) *attachmentsPicke
                 cfg:      cfg,
                 chatView: chatView,
         }
-        ap.SetFocusFunc(func(p tview.Primitive) </span><span class="cov0" title="0">{
+        ap.SetFocusFunc(func(p tview.Model) </span><span class="cov0" title="0">{
                 chatView.app.SetFocus(p)
         }</span>)
         <span class="cov8" title="1">ap.Box = ui.ConfigureBox(tview.NewBox(), &amp;cfg.Theme)
@@ -212,7 +212,7 @@ import (
 
         "github.com/ayn2op/discordo/internal/config"
         "github.com/ayn2op/discordo/internal/ui"
-        "github.com/ayn2op/discordo/pkg/picker"
+        "github.com/eyalmazuz/tview/picker"
         "github.com/ayn2op/tview"
         "github.com/ayn2op/tview/help"
         "github.com/ayn2op/tview/keybind"
@@ -228,7 +228,7 @@ var _ help.KeyMap = (*channelsPicker)(nil)
 
 func newChannelsPicker(cfg *config.Config, chatView *Model) *channelsPicker <span class="cov8" title="1">{
         cp := &amp;channelsPicker{picker.New(), chatView}
-        cp.SetFocusFunc(func(p tview.Primitive) </span><span class="cov0" title="0">{
+        cp.SetFocusFunc(func(p tview.Model) </span><span class="cov0" title="0">{
                 chatView.app.SetFocus(p)
         }</span>)
         <span class="cov8" title="1">cp.Box = ui.ConfigureBox(tview.NewBox(), &amp;cfg.Theme)
@@ -435,7 +435,7 @@ func newLogoutEvent() *LogoutEvent <span class="cov0" title="0">{
         return event
 }</span>
 
-func (v *Model) logout() tview.Command <span class="cov0" title="0">{
+func (v *Model) logout() tview.Cmd <span class="cov0" title="0">{
         return tview.EventCommand(func() tcell.Event </span><span class="cov0" title="0">{ return newLogoutEvent() }</span>)
 }
 
@@ -447,7 +447,7 @@ func NewQuitEvent() *QuitEvent <span class="cov0" title="0">{
         return event
 }</span>
 
-func (v *Model) closeState() tview.Command <span class="cov0" title="0">{
+func (v *Model) closeState() tview.Cmd <span class="cov0" title="0">{
         return tview.EventCommand(func() tcell.Event </span><span class="cov0" title="0">{
                 if err := v.CloseState(); err != nil </span><span class="cov0" title="0">{
                         slog.Error("failed to close the session", "err", err)
@@ -894,7 +894,7 @@ func (gt *guildsTree) collapseParentNode(node *tview.TreeNode) <span class="cov0
                 })
 }
 
-func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Command <span class="cov8" title="1">{
+func (gt *guildsTree) HandleEvent(event tcell.Event) tview.Cmd <span class="cov8" title="1">{
         switch event := event.(type) </span>{
         case *tview.KeyEvent:<span class="cov8" title="1">
                 redraw := tview.RedrawCommand{}
@@ -1032,7 +1032,7 @@ import (
 )
 
 // imageItem renders an inline image inside the messages list.
-// It implements tview.ListItem.
+// It implements list.Item.
 type imageItem struct {
         *tview.Box
         cache    *imgpkg.Cache
@@ -1179,11 +1179,11 @@ func (it *imageItem) Draw(screen tcell.Screen) <span class="cov8" title="1">{
         if !ok </span><span class="cov8" title="1">{
                 if it.cache.Failed(it.url) </span><span class="cov0" title="0">{
                         if !isEmote </span><span class="cov0" title="0">{
-                                tview.Print(screen, "[image failed]", x, y, w, tview.AlignmentLeft, tcell.ColorRed)
+                                tview.Print(screen, "[image failed]", x, y, w, tview.AlignLeft, tcell.ColorRed)
                         }</span>
                 } else<span class="cov8" title="1"> {
                         if !isEmote </span><span class="cov0" title="0">{
-                                tview.Print(screen, "[loading image...]", x, y, w, tview.AlignmentLeft, tcell.ColorDimGray)
+                                tview.Print(screen, "[loading image...]", x, y, w, tview.AlignLeft, tcell.ColorDimGray)
                         }</span> else<span class="cov8" title="1"> {
                                 // Small placeholder for emote
                                 screen.SetContent(x, y, '…', nil, tcell.StyleDefault.Foreground(tcell.ColorDimGray))
@@ -1433,7 +1433,7 @@ func (v *Model) activeKeyMap() help.KeyMap <span class="cov0" title="0">{
                 return nil
         }</span>
 
-        <span class="cov0" title="0">switch v.app.GetFocus() </span>{
+        <span class="cov0" title="0">switch v.app.Focused() </span>{
         case v.guildsTree:<span class="cov0" title="0">
                 return v.guildsTree</span>
         case v.messagesList:<span class="cov0" title="0">
@@ -1493,13 +1493,13 @@ type mentionsListItem struct {
 }
 
 type mentionsList struct {
-        *tview.List
+        *list.Model
         items []mentionsListItem
 }
 
 func newMentionsList(cfg *config.Config) *mentionsList <span class="cov8" title="1">{
         m := &amp;mentionsList{
-                List: tview.NewList(),
+                List: list.NewModel(),
         }
 
         m.Box = ui.ConfigureBox(m.Box, &amp;cfg.Theme)
@@ -1522,7 +1522,7 @@ func (m *mentionsList) clear() <span class="cov8" title="1">{
 }</span>
 
 func (m *mentionsList) rebuild() <span class="cov8" title="1">{
-        m.SetBuilder(func(index int, cursor int) tview.ListItem </span><span class="cov0" title="0">{
+        m.SetBuilder(func(index int, cursor int) list.Item </span><span class="cov0" title="0">{
                 if index &lt; 0 || index &gt;= len(m.items) </span><span class="cov0" title="0">{
                         return nil
                 }</span>
@@ -1677,7 +1677,7 @@ func (mi *messageInput) stopTypingTimer() <span class="cov8" title="1">{
         }</span>
 }
 
-func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command <span class="cov8" title="1">{
+func (mi *messageInput) HandleEvent(event tcell.Event) tview.Cmd <span class="cov8" title="1">{
         switch event := event.(type) </span>{
         case *tview.KeyEvent:<span class="cov8" title="1">
                 redraw := tview.RedrawCommand{}
@@ -1695,7 +1695,7 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command <span class
                         <span class="cov0" title="0">return redraw</span>
                 case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.OpenEditor.Keybind):<span class="cov0" title="0">
                         var cmds tview.BatchCommand
-                        mi.stopTabCompletion(func(next tview.Command) </span><span class="cov0" title="0">{
+                        mi.stopTabCompletion(func(next tview.Cmd) </span><span class="cov0" title="0">{
                                 if next != nil </span><span class="cov0" title="0">{
                                         cmds = append(cmds, next)
                                 }</span>
@@ -1705,7 +1705,7 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command <span class
                         return cmds</span>
                 case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.OpenFilePicker.Keybind):<span class="cov0" title="0">
                         var cmds tview.BatchCommand
-                        mi.stopTabCompletion(func(next tview.Command) </span><span class="cov0" title="0">{
+                        mi.stopTabCompletion(func(next tview.Cmd) </span><span class="cov0" title="0">{
                                 if next != nil </span><span class="cov0" title="0">{
                                         cmds = append(cmds, next)
                                 }</span>
@@ -1716,7 +1716,7 @@ func (mi *messageInput) HandleEvent(event tcell.Event) tview.Command <span class
                 case keybind.Matches(event, mi.cfg.Keybinds.MessageInput.Cancel.Keybind):<span class="cov8" title="1">
                         var cmds tview.BatchCommand
                         if mi.chat.GetVisible(mentionsListLayerName) </span><span class="cov0" title="0">{
-                                mi.stopTabCompletion(func(next tview.Command) </span><span class="cov0" title="0">{
+                                mi.stopTabCompletion(func(next tview.Cmd) </span><span class="cov0" title="0">{
                                         if next != nil </span><span class="cov0" title="0">{
                                                 cmds = append(cmds, next)
                                         }</span>
@@ -2234,7 +2234,7 @@ func (mi *messageInput) removeMentionsList() <span class="cov8" title="1">{
         mi.chat.HideLayer(mentionsListLayerName)
 }</span>
 
-func (mi *messageInput) stopTabCompletion(emit func(tview.Command)) <span class="cov0" title="0">{
+func (mi *messageInput) stopTabCompletion(emit func(tview.Cmd)) <span class="cov0" title="0">{
         if mi.cfg.AutocompleteLimit &gt; 0 </span><span class="cov0" title="0">{
                 mi.mentionsList.clear()
                 if emit != nil </span><span class="cov0" title="0">{
@@ -2387,15 +2387,15 @@ type messageSearchResult struct {
 }
 
 type messageSearchPopup struct {
-        *tview.Flex
+        *flex.Model
         cfg          *config.Config
         chatView     *Model
         messagesList *messagesList
         input        *tview.InputField
-        list         *tview.List
+        list         *list.Model
 
         channel           discord.Channel
-        previousFocus     tview.Primitive
+        previousFocus     tview.Model
         results           []messageSearchResult
         status            string
         statusStyle       tcell.Style
@@ -2411,12 +2411,12 @@ var _ help.KeyMap = (*messageSearchPopup)(nil)
 
 func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *messagesList) *messageSearchPopup <span class="cov8" title="1">{
         sp := &amp;messageSearchPopup{
-                Flex:         tview.NewFlex(),
+                Flex:         flex.NewModel(),
                 cfg:          cfg,
                 chatView:     chatView,
                 messagesList: messagesList,
                 input:        tview.NewInputField(),
-                list:         tview.NewList(),
+                list:         list.NewModel(),
                 statusStyle:  tcell.StyleDefault.Dim(true),
         }
 
@@ -2439,7 +2439,7 @@ func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *me
                 SetThumbStyle(cfg.Theme.ScrollBar.ThumbStyle.Style).
                 SetGlyphSet(cfg.Theme.ScrollBar.GlyphSet.GlyphSet))
 
-        sp.SetDirection(tview.FlexRow).
+        sp.SetDirection(flex.DirectionRow).
                 AddItem(sp.input, 2, 0, true).
                 AddItem(sp.list, 0, 1, false)
 
@@ -2456,7 +2456,7 @@ func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *me
         return sp
 }</span>
 
-func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tview.Primitive) <span class="cov8" title="1">{
+func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tview.Model) <span class="cov8" title="1">{
         sp.channel = channel
         sp.previousFocus = previousFocus
         sp.results = nil
@@ -2486,7 +2486,7 @@ func (sp *messageSearchPopup) FullHelp() [][]keybind.Keybind <span class="cov0" 
         }
 }</span>
 
-func (sp *messageSearchPopup) HandleEvent(event tcell.Event) tview.Command <span class="cov8" title="1">{
+func (sp *messageSearchPopup) HandleEvent(event tcell.Event) tview.Cmd <span class="cov8" title="1">{
         switch event := event.(type) </span>{
         case *tview.KeyEvent:<span class="cov8" title="1">
                 redraw := tview.RedrawCommand{}
@@ -2682,7 +2682,7 @@ func (sp *messageSearchPopup) selectCurrent() <span class="cov8" title="1">{
         <span class="cov8" title="1">sp.close(sp.messagesList)</span>
 }
 
-func (sp *messageSearchPopup) close(nextFocus tview.Primitive) <span class="cov8" title="1">{
+func (sp *messageSearchPopup) close(nextFocus tview.Model) <span class="cov8" title="1">{
         sp.activeSearchToken.Add(1)
         if sp.chatView != nil &amp;&amp; sp.chatView.HasLayer(messageSearchLayerName) </span><span class="cov8" title="1">{
                 sp.chatView.RemoveLayer(messageSearchLayerName)
@@ -2742,7 +2742,7 @@ func (sp *messageSearchPopup) setStatus(text string, style tcell.Style) <span cl
         sp.SetFooter("Enter search  Tab focus")
 }</span>
 
-func (sp *messageSearchPopup) buildItem(index int, cursor int) tview.ListItem <span class="cov0" title="0">{
+func (sp *messageSearchPopup) buildItem(index int, cursor int) list.Item <span class="cov0" title="0">{
         if len(sp.results) == 0 </span><span class="cov0" title="0">{
                 if sp.status == "" || index != 0 </span><span class="cov0" title="0">{
                         return nil
@@ -2862,7 +2862,7 @@ import (
 )
 
 type messagesList struct {
-        *tview.List
+        *list.Model
         cfg      *config.Config
         chatView *Model
         messages []discord.Message
@@ -2929,7 +2929,7 @@ const inlineEmoteWidth = 2
 func newMessagesList(cfg *config.Config, chatView *Model) *messagesList <span class="cov8" title="1">{
         useKitty := resolveKittyMode(cfg.InlineImages.Renderer)
         ml := &amp;messagesList{
-                List:           tview.NewList(),
+                List:           list.NewModel(),
                 cfg:            cfg,
                 chatView:       chatView,
                 renderer:       markdown.NewRenderer(cfg),
@@ -3303,7 +3303,7 @@ func (ml *messagesList) clearSelection() <span class="cov8" title="1">{
         ml.SetCursor(-1)
 }</span>
 
-func (ml *messagesList) buildItem(index int, cursor int) tview.ListItem <span class="cov8" title="1">{
+func (ml *messagesList) buildItem(index int, cursor int) list.Item <span class="cov8" title="1">{
         ml.ensureRows()
 
         if index &lt; 0 || index &gt;= len(ml.rows) </span><span class="cov8" title="1">{
@@ -4069,7 +4069,7 @@ func (ml *messagesList) selectedMessage() (*discord.Message, error) <span class=
         <span class="cov8" title="1">return &amp;ml.messages[cursor], nil</span>
 }
 
-func (ml *messagesList) HandleEvent(event tcell.Event) tview.Command <span class="cov8" title="1">{
+func (ml *messagesList) HandleEvent(event tcell.Event) tview.Cmd <span class="cov8" title="1">{
         switch event := event.(type) </span>{
         case *tview.MouseEvent:<span class="cov0" title="0">
                 if event.Action != tview.MouseLeftClick </span><span class="cov0" title="0">{
@@ -4800,9 +4800,9 @@ const (
 type Model struct {
         *layers.Layers
 
-        rootFlex  *tview.Flex
-        mainFlex  *tview.Flex
-        rightFlex *tview.Flex
+        rootFlex  *flex.Model
+        mainFlex  *flex.Model
+        rightFlex *flex.Model
 
         guildsTree     *guildsTree
         messagesList   *messagesList
@@ -4817,7 +4817,7 @@ type Model struct {
         typers   map[discord.UserID]*time.Timer
 
         confirmModalDone          func(label string)
-        confirmModalPreviousFocus tview.Primitive
+        confirmModalPreviousFocus tview.Model
 
         app   *tview.Application
         cfg   *config.Config
@@ -4829,9 +4829,9 @@ func NewView(app *tview.Application, cfg *config.Config, token string) *Model <s
         v := &amp;Model{
                 Layers: layers.New(),
 
-                rootFlex:  tview.NewFlex(),
-                mainFlex:  tview.NewFlex(),
-                rightFlex: tview.NewFlex(),
+                rootFlex:  flex.NewModel(),
+                mainFlex:  flex.NewModel(),
+                rightFlex: flex.NewModel(),
 
                 typers: make(map[discord.UserID]*time.Timer),
 
@@ -4891,7 +4891,7 @@ func (v *Model) buildLayout() <span class="cov8" title="1">{
         v.mainFlex.Clear()
 
         v.rightFlex.
-                SetDirection(tview.FlexRow).
+                SetDirection(flex.DirectionRow).
                 AddItem(v.messagesList, 0, 1, false).
                 AddItem(v.messageInput, 3, 1, false)
         // The guilds tree is always focused first at start-up.
@@ -4900,7 +4900,7 @@ func (v *Model) buildLayout() <span class="cov8" title="1">{
                 AddItem(v.rightFlex, 0, 4, false)
 
         v.rootFlex.
-                SetDirection(tview.FlexRow).
+                SetDirection(flex.DirectionRow).
                 AddItem(v.mainFlex, 0, 1, true)
         v.AddLayer(v.rootFlex, layers.WithName(flexLayerName), layers.WithResize(true), layers.WithVisible(true))
         v.AddLayer(v.messageInput.mentionsList, layers.WithName(mentionsListLayerName), layers.WithResize(false), layers.WithVisible(false))
@@ -4948,7 +4948,7 @@ func (v *Model) openMessageSearch() <span class="cov8" title="1">{
         }</span>
 
         <span class="cov8" title="1">v.messageInput.removeMentionsList()
-        v.messageSearch.Prepare(*selected, v.app.GetFocus())
+        v.messageSearch.Prepare(*selected, v.app.Focused())
         v.AddLayer(
                 ui.Centered(v.messageSearch, v.cfg.Picker.Width, v.cfg.Picker.Height),
                 layers.WithName(messageSearchLayerName),
@@ -4992,7 +4992,7 @@ func (v *Model) focusMessageInput() bool <span class="cov8" title="1">{
 }
 
 func (v *Model) focusPrevious() <span class="cov0" title="0">{
-        switch v.app.GetFocus() </span>{
+        switch v.app.Focused() </span>{
         case v.messagesList:<span class="cov0" title="0"> // Handle both a.messagesList and a.flex as well as other edge cases (if there is).
                 if v.focusGuildsTree() </span><span class="cov0" title="0">{
                         return
@@ -5009,7 +5009,7 @@ func (v *Model) focusPrevious() <span class="cov0" title="0">{
 }
 
 func (v *Model) focusNext() <span class="cov8" title="1">{
-        switch v.app.GetFocus() </span>{
+        switch v.app.Focused() </span>{
         case v.messagesList:<span class="cov8" title="1">
                 if v.focusMessageInput() </span><span class="cov8" title="1">{
                         return
@@ -5025,7 +5025,7 @@ func (v *Model) focusNext() <span class="cov8" title="1">{
         }
 }
 
-func (v *Model) HandleEvent(event tcell.Event) tview.Command <span class="cov8" title="1">{
+func (v *Model) HandleEvent(event tcell.Event) tview.Cmd <span class="cov8" title="1">{
         switch event := event.(type) </span>{
         case *tview.InitEvent:<span class="cov0" title="0">
                 return tview.EventCommand(func() tcell.Event </span><span class="cov0" title="0">{
@@ -5091,20 +5091,20 @@ func (v *Model) HandleEvent(event tcell.Event) tview.Command <span class="cov8" 
         return v.consumeLayerCommands(cmd)</span>
 }
 
-func (v *Model) consumeLayerCommands(command tview.Command) tview.Command <span class="cov8" title="1">{
+func (v *Model) consumeLayerCommands(command tview.Cmd) tview.Cmd <span class="cov8" title="1">{
         if command == nil </span><span class="cov8" title="1">{
                 return nil
         }</span>
 
-        <span class="cov8" title="1">var commands []tview.Command
+        <span class="cov8" title="1">var commands []tview.Cmd
         switch c := command.(type) </span>{
         case tview.BatchCommand:<span class="cov0" title="0">
                 commands = c</span>
         default:<span class="cov8" title="1">
-                commands = []tview.Command{c}</span>
+                commands = []tview.Cmd{c}</span>
         }
 
-        <span class="cov8" title="1">remaining := make([]tview.Command, 0, len(commands))
+        <span class="cov8" title="1">remaining := make([]tview.Cmd, 0, len(commands))
         for _, cmd := range commands </span><span class="cov8" title="1">{
                 switch c := cmd.(type) </span>{
                 case layers.OpenLayerCommand:<span class="cov0" title="0">
@@ -5140,7 +5140,7 @@ func (v *Model) consumeLayerCommands(command tview.Command) tview.Command <span 
 }
 
 func (v *Model) showConfirmModal(prompt string, buttons []string, onDone func(label string)) <span class="cov0" title="0">{
-        v.confirmModalPreviousFocus = v.app.GetFocus()
+        v.confirmModalPreviousFocus = v.app.Focused()
         v.confirmModalDone = onDone
 
         modal := tview.NewModal().
@@ -5277,7 +5277,7 @@ import (
         imgpkg "github.com/ayn2op/discordo/internal/image"
         "github.com/ayn2op/discordo/internal/markdown"
         "github.com/ayn2op/discordo/internal/ui"
-        "github.com/ayn2op/discordo/pkg/picker"
+        "github.com/eyalmazuz/tview/picker"
         "github.com/ayn2op/tview"
         "github.com/ayn2op/tview/help"
         "github.com/ayn2op/tview/keybind"
@@ -5309,7 +5309,7 @@ func newReactionPicker(cfg *config.Config, chatView *Model, messagesList *messag
                 emoteItemByKey: make(map[string]*imageItem),
                 nextKittyID:    1,
         }
-        rp.SetFocusFunc(func(p tview.Primitive) </span><span class="cov0" title="0">{
+        rp.SetFocusFunc(func(p tview.Model) </span><span class="cov0" title="0">{
                 chatView.app.SetFocus(p)
         }</span>)
         <span class="cov8" title="1">rp.Box = ui.ConfigureBox(tview.NewBox(), &amp;cfg.Theme)

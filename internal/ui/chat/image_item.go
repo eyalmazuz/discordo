@@ -13,7 +13,7 @@ import (
 )
 
 // imageItem renders an inline image inside the messages list.
-// It implements tview.ListItem.
+// It implements list.Item.
 type imageItem struct {
 	*tview.Box
 	cache    *imgpkg.Cache
@@ -21,6 +21,10 @@ type imageItem struct {
 	maxW     int
 	maxH     int
 	useKitty bool
+	// lockKittyRegion reserves screen cells for Kitty placements. Overlay previews
+	// should not lock regions because they share the terminal image plane with the
+	// main chat view and can otherwise leave rendering artifacts behind.
+	lockKittyRegion bool
 
 	// Lazy-init cell pixel dimensions (Kitty mode only).
 	cellW, cellH int
@@ -57,16 +61,17 @@ type imageItem struct {
 
 func newImageItem(cache *imgpkg.Cache, url string, maxW, maxH int, useKitty bool, kittyID uint32, getViewport func() (int, int, int, int), requestRedraw func(time.Duration)) *imageItem {
 	return &imageItem{
-		Box:            tview.NewBox(),
-		cache:          cache,
-		url:            url,
-		maxW:           maxW,
-		maxH:           maxH,
-		useKitty:       useKitty,
-		kittyID:        kittyID,
-		lastFrameIndex: -1,
-		requestRedraw:  requestRedraw,
-		getViewport:    getViewport,
+		Box:             tview.NewBox(),
+		cache:           cache,
+		url:             url,
+		maxW:            maxW,
+		maxH:            maxH,
+		useKitty:        useKitty,
+		lockKittyRegion: true,
+		kittyID:         kittyID,
+		lastFrameIndex:  -1,
+		requestRedraw:   requestRedraw,
+		getViewport:     getViewport,
 	}
 }
 
@@ -147,7 +152,7 @@ func (it *imageItem) Draw(screen tcell.Screen) {
 		it.Box.DrawForSubclass(screen, it)
 	}
 
-	x, y, w, h := it.GetInnerRect()
+	x, y, w, h := it.InnerRect()
 	if w <= 0 || h <= 0 {
 		return
 	}
@@ -280,7 +285,9 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 	it.kittyCropH = cropHPixels
 
 	// Lock the visible region so tcell's Show() skips these cells.
-	screen.LockRegion(x, visibleTop, fullCols, visibleRows, true)
+	if it.lockKittyRegion {
+		screen.LockRegion(x, visibleTop, fullCols, visibleRows, true)
+	}
 
 	// Defer the actual TTY write to AfterDraw (after screen.Show).
 	it.lastX = x
@@ -293,7 +300,9 @@ func (it *imageItem) drawKitty(screen tcell.Screen, img image.Image, x, y, w, h 
 // Must be called before removing/deleting the image so tcell resumes painting those cells.
 func (it *imageItem) unlockRegion(screen tcell.Screen) {
 	if it.kittyPlaced && it.kittyCols > 0 && it.kittyVisibleRows > 0 {
-		screen.LockRegion(it.lastX, it.lastY, it.kittyCols, it.kittyVisibleRows, false)
+		if it.lockKittyRegion {
+			screen.LockRegion(it.lastX, it.lastY, it.kittyCols, it.kittyVisibleRows, false)
+		}
 	}
 }
 

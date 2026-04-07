@@ -89,8 +89,8 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 	t.Run("close nil connection", func(t *testing.T) {
 		m := NewModel(tview.NewApplication())
 		event := runCommand(t, m.close())
-		if _, ok := event.(*connCloseEvent); !ok {
-			t.Fatalf("expected nil close to return connCloseEvent, got %T", event)
+		if _, ok := event.(*connCloseMsg); !ok {
+			t.Fatalf("expected nil close to return connCloseMsg, got %T", event)
 		}
 	})
 
@@ -338,7 +338,7 @@ func TestQRCommandsErrorPaths(t *testing.T) {
 		}
 
 		event := runCommand(t, m.exchangeTicket("ticket"))
-		tokenEvent, ok := event.(*TokenEvent)
+		tokenEvent, ok := event.(*TokenMsg)
 		if !ok || tokenEvent.Token != token {
 			t.Fatalf("expected token event with %q, got %#v", token, event)
 		}

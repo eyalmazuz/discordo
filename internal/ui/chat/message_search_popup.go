@@ -8,11 +8,13 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/flex"
+	"github.com/eyalmazuz/tview/help"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -21,15 +23,15 @@ type messageSearchResult struct {
 }
 
 type messageSearchPopup struct {
-	*tview.Flex
+	*flex.Model
 	cfg          *config.Config
 	chatView     *Model
 	messagesList *messagesList
 	input        *tview.InputField
-	list         *tview.List
+	list         *list.Model
 
 	channel           discord.Channel
-	previousFocus     tview.Primitive
+	previousFocus     tview.Model
 	results           []messageSearchResult
 	status            string
 	statusStyle       tcell.Style
@@ -45,12 +47,12 @@ var _ help.KeyMap = (*messageSearchPopup)(nil)
 
 func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *messagesList) *messageSearchPopup {
 	sp := &messageSearchPopup{
-		Flex:         tview.NewFlex(),
+		Model:        flex.NewModel(),
 		cfg:          cfg,
 		chatView:     chatView,
 		messagesList: messagesList,
 		input:        tview.NewInputField(),
-		list:         tview.NewList(),
+		list:         list.NewModel(),
 		statusStyle:  tcell.StyleDefault.Dim(true),
 	}
 
@@ -73,7 +75,7 @@ func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *me
 		SetThumbStyle(cfg.Theme.ScrollBar.ThumbStyle.Style).
 		SetGlyphSet(cfg.Theme.ScrollBar.GlyphSet.GlyphSet))
 
-	sp.SetDirection(tview.FlexRow).
+	sp.SetDirection(flex.DirectionRow).
 		AddItem(sp.input, 2, 0, true).
 		AddItem(sp.list, 0, 1, false)
 
@@ -90,7 +92,7 @@ func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *me
 	return sp
 }
 
-func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tview.Primitive) {
+func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tview.Model) {
 	sp.channel = channel
 	sp.previousFocus = previousFocus
 	sp.results = nil
@@ -103,7 +105,7 @@ func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tvi
 
 func (sp *messageSearchPopup) FocusInput() {
 	if sp.chatView != nil && sp.chatView.app != nil {
-		sp.chatView.app.SetFocus(sp.input)
+		sendFocus(sp.chatView.app, sp.input)
 	}
 }
 
@@ -120,64 +122,64 @@ func (sp *messageSearchPopup) FullHelp() [][]keybind.Keybind {
 	}
 }
 
-func (sp *messageSearchPopup) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.KeyEvent:
+func (sp *messageSearchPopup) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.KeyMsg:
 		keys := sp.cfg.Keybinds.Picker
 
 		switch {
-		case keybind.Matches(event, keys.ToggleFocus.Keybind):
+		case keybind.Matches(msg, keys.ToggleFocus.Keybind):
 			if sp.input.HasFocus() {
-				sp.chatView.app.SetFocus(sp.list)
+				sendFocus(sp.chatView.app, sp.list)
 			} else {
-				sp.chatView.app.SetFocus(sp.input)
+				sendFocus(sp.chatView.app, sp.input)
 			}
 			return nil
-		case keybind.Matches(event, keys.Up.Keybind):
-			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Up.Keybind):
+			sp.list.Update(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Down.Keybind):
-			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Down.Keybind):
+			sp.list.Update(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Top.Keybind):
-			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Top.Keybind):
+			sp.list.Update(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Bottom.Keybind):
-			sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Bottom.Keybind):
+			sp.list.Update(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Select.Keybind):
+		case keybind.Matches(msg, keys.Select.Keybind):
 			if sp.input.HasFocus() {
 				sp.search()
 			} else {
 				sp.selectCurrent()
 			}
 			return nil
-		case keybind.Matches(event, keys.Cancel.Keybind):
+		case keybind.Matches(msg, keys.Cancel.Keybind):
 			sp.close(sp.previousFocus)
 			return nil
 		}
 
-		if sp.list.HasFocus() && event.Key() == tcell.KeyRune {
-			switch event.Str() {
+		if sp.list.HasFocus() && msg.Key() == tcell.KeyRune {
+			switch msg.Str() {
 			case "j":
-				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+				sp.list.Update(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 				return nil
 			case "k":
-				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+				sp.list.Update(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 				return nil
 			case "g":
-				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+				sp.list.Update(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
 				return nil
 			case "G":
-				sp.list.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+				sp.list.Update(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 				return nil
 			}
 		}
 
-		return sp.Flex.HandleEvent(event)
+		return sp.Model.Update(msg)
 	}
 
-	return sp.Flex.HandleEvent(event)
+	return sp.Model.Update(msg)
 }
 
 func (sp *messageSearchPopup) search() {
@@ -315,13 +317,13 @@ func (sp *messageSearchPopup) selectCurrent() {
 	sp.close(sp.messagesList)
 }
 
-func (sp *messageSearchPopup) close(nextFocus tview.Primitive) {
+func (sp *messageSearchPopup) close(nextFocus tview.Model) {
 	sp.activeSearchToken.Add(1)
 	if sp.chatView != nil && sp.chatView.HasLayer(messageSearchLayerName) {
 		sp.chatView.RemoveLayer(messageSearchLayerName)
 	}
 	if sp.chatView != nil && sp.chatView.app != nil && nextFocus != nil {
-		sp.chatView.app.SetFocus(nextFocus)
+		sendFocus(sp.chatView.app, nextFocus)
 	}
 	sp.previousFocus = nil
 }
@@ -334,7 +336,8 @@ func (sp *messageSearchPopup) enqueueUpdateDraw(f func()) {
 	if sp.chatView == nil || sp.chatView.app == nil {
 		return
 	}
-	sp.chatView.app.QueueUpdateDraw(f)
+	f()
+	triggerRedraw(sp.chatView.app)
 }
 
 func (sp *messageSearchPopup) onInputChanged(text string) {
@@ -375,7 +378,7 @@ func (sp *messageSearchPopup) setStatus(text string, style tcell.Style) {
 	sp.SetFooter("Enter search  Tab focus")
 }
 
-func (sp *messageSearchPopup) buildItem(index int, cursor int) tview.ListItem {
+func (sp *messageSearchPopup) buildItem(index int, cursor int) list.Item {
 	if len(sp.results) == 0 {
 		if sp.status == "" || index != 0 {
 			return nil

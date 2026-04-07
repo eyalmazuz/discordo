@@ -3,8 +3,8 @@ package chat
 import (
 	"testing"
 
-	"github.com/ayn2op/discordo/pkg/picker"
 	"github.com/eyalmazuz/tview/layers"
+	"github.com/eyalmazuz/tview/picker"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -29,36 +29,36 @@ func TestAttachmentsPickerSelectionAndHelp(t *testing.T) {
 			},
 		},
 	})
-	m.AddLayer(ap, layers.WithName(attachmentsListLayerName), layers.WithVisible(true))
+	m.AddLayer(ap, layers.WithName(attachmentsPickerLayerName), layers.WithVisible(true))
 
-	ap.onSelected(picker.Item{})
-	ap.onSelected(picker.Item{Reference: "bad"})
-	ap.onSelected(picker.Item{Reference: 99})
+	ap.Update(&picker.SelectedMsg{Item: picker.Item{}})
+	ap.Update(&picker.SelectedMsg{Item: picker.Item{Reference: "bad"}})
+	ap.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 99}})
 	if opened != 0 {
 		t.Fatalf("expected invalid selections to be ignored, got %d opens", opened)
 	}
 
-	ap.onSelected(picker.Item{Reference: 0})
+	executeModelCommand(m, ap.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 0}}))
 	if opened != 1 {
 		t.Fatalf("expected valid selection to open once, got %d", opened)
 	}
-	if m.HasLayer(attachmentsListLayerName) {
+	if m.HasLayer(attachmentsPickerLayerName) {
 		t.Fatal("expected picker layer to close after selection")
 	}
-	if m.app.GetFocus() != m.messagesList {
-		t.Fatalf("expected focus to return to messages list, got %T", m.app.GetFocus())
+	if m.app.Focused() != m.messagesList {
+		t.Fatalf("expected focus to return to messages list, got %T", m.app.Focused())
 	}
 
-	m.AddLayer(ap, layers.WithName(attachmentsListLayerName), layers.WithVisible(true))
+	m.AddLayer(ap, layers.WithName(attachmentsPickerLayerName), layers.WithVisible(true))
 	ap.close()
-	if m.HasLayer(attachmentsListLayerName) {
+	if m.HasLayer(attachmentsPickerLayerName) {
 		t.Fatal("expected close to remove the picker layer")
 	}
 
 	ap = newAttachmentsPicker(m.cfg, m)
-	m.app.SetFocus(ap)
-	
+	setFocusForTest(m.app, ap)
+
 	// Simulate ToggleFocus key event to trigger SetFocusFunc closure
 	event := tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)
-	ap.HandleEvent(event)
+	ap.Update(event)
 }

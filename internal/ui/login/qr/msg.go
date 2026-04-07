@@ -12,20 +12,17 @@ import (
 	"time"
 
 	"github.com/ayn2op/discordo/internal/http"
-	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/utils/httputil"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gorilla/websocket"
 	"github.com/skip2/go-qrcode"
 )
 
-type errMsg struct {
-	tcell.EventTime
-	err error
-}
+var rsaGenerateKey = rsa.GenerateKey
 
-func newErrMsg(err error) *errMsg {
-	return &errMsg{err: err}
+func newErrMsg(err error) tview.Msg {
+	return tcell.NewEventError(err)
 }
 
 type TokenMsg struct {
@@ -46,7 +43,7 @@ func (m *Model) connect() tview.Cmd {
 	return func() tview.Msg {
 		headers := http.Headers()
 		headers.Set("User-Agent", http.BrowserUserAgent)
-		conn, _, err := websocket.DefaultDialer.Dial(remoteAuthGatewayURL, headers)
+		conn, _, err := wsDial(remoteAuthGatewayURL, headers)
 		if err != nil {
 			return newErrMsg(err)
 		}
@@ -57,7 +54,7 @@ func (m *Model) connect() tview.Cmd {
 func (m *Model) close() tview.Cmd {
 	return func() tview.Msg {
 		if m.conn != nil {
-			if err := m.conn.Close(); err != nil {
+			if err := wsClose(m.conn); err != nil {
 				return newErrMsg(err)
 			}
 		}
@@ -99,7 +96,7 @@ func (m *Model) listen() tview.Cmd {
 			return nil
 		}
 
-		_, data, err := m.conn.ReadMessage()
+		_, data, err := wsReadMessage(m.conn)
 		if err != nil {
 			return newErrMsg(err)
 		}
@@ -178,7 +175,7 @@ func (m *Model) sendHeartbeat() tview.Cmd {
 		data := struct {
 			Op string `json:"op"`
 		}{"heartbeat"}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return newErrMsg(err)
 		}
 		return nil
@@ -192,7 +189,7 @@ type privateKeyMsg struct {
 
 func (m *Model) generatePrivateKey() tview.Cmd {
 	return func() tview.Msg {
-		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		privateKey, err := rsaGenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return newErrMsg(err)
 		}
@@ -214,7 +211,7 @@ func (m *Model) sendInit() tview.Cmd {
 			Op               string `json:"op"`
 			EncodedPublicKey string `json:"encoded_public_key"`
 		}{"init", encodedPublicKey}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return newErrMsg(err)
 		}
 		return nil
@@ -238,7 +235,7 @@ func (m *Model) sendNonceProof(encryptedNonce string) tview.Cmd {
 			Op    string `json:"op"`
 			Nonce string `json:"nonce"`
 		}{"nonce_proof", encodedNonce}
-		if err := m.conn.WriteJSON(data); err != nil {
+		if err := wsWriteJSON(m.conn, data); err != nil {
 			return newErrMsg(err)
 		}
 		return nil
@@ -300,7 +297,7 @@ func (m *Model) exchangeTicket(ticket string) tview.Cmd {
 		client := http.NewClient("")
 		client.OnRequest = append(client.OnRequest, httputil.WithHeaders(headers))
 
-		encryptedToken, err := client.ExchangeRemoteAuthTicket(ticket)
+		encryptedToken, err := exchangeTicketFn(client, ticket)
 		if err != nil {
 			return newErrMsg(err)
 		}

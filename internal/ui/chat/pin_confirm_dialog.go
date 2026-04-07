@@ -4,6 +4,7 @@ import (
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
 	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/flex"
 	"github.com/eyalmazuz/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
@@ -14,7 +15,7 @@ const (
 )
 
 type messageConfirmDialog struct {
-	*tview.Flex
+	*flex.Model
 	form *tview.Form
 }
 
@@ -45,8 +46,8 @@ func newMessageConfirmDialog(cfg *config.Config, prompt string, helper string, p
 		SetFocus(0)
 
 	dialog := &messageConfirmDialog{
-		Flex: tview.NewFlex().
-			SetDirection(tview.FlexRow).
+		Model: flex.NewModel().
+			SetDirection(flex.DirectionRow).
 			AddItem(header, 4, 0, false).
 			AddItem(preview, 0, 1, false).
 			AddItem(form, 3, 0, true),
@@ -85,7 +86,7 @@ func newMessageConfirmDialog(cfg *config.Config, prompt string, helper string, p
 	return dialog
 }
 
-func (d *messageConfirmDialog) Focus(delegate func(p tview.Primitive)) {
+func (d *messageConfirmDialog) Focus(delegate func(p tview.Model)) {
 	if delegate == nil {
 		return
 	}
@@ -96,25 +97,25 @@ func (d *messageConfirmDialog) HasFocus() bool {
 	return d.form.HasFocus()
 }
 
-func (d *messageConfirmDialog) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.FormSubmitEvent:
-		return func() tcell.Event {
-			return &tview.ModalDoneEvent{
-				ButtonIndex: event.ButtonIndex,
-				ButtonLabel: event.ButtonLabel,
+func (d *messageConfirmDialog) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.FormSubmitMsg:
+		return func() tview.Msg {
+			return &tview.ModalDoneMsg{
+				ButtonIndex: msg.ButtonIndex,
+				ButtonLabel: msg.ButtonLabel,
 			}
 		}
-	case *tview.FormCancelEvent:
-		return func() tcell.Event {
-			return &tview.ModalDoneEvent{ButtonIndex: -1, ButtonLabel: ""}
+	case *tview.FormCancelMsg:
+		return func() tview.Msg {
+			return &tview.ModalDoneMsg{ButtonIndex: -1, ButtonLabel: ""}
 		}
 	}
-	return d.form.HandleEvent(event)
+	return d.form.Update(msg)
 }
 
 func (v *Model) showMessageConfirmDialog(prompt string, helper string, previewLines []tview.Line, onDone func(label string)) {
-	v.confirmModalPreviousFocus = v.app.GetFocus()
+	v.confirmModalPreviousFocus = v.app.Focused()
 	v.confirmModalDone = onDone
 
 	dialog := newMessageConfirmDialog(v.cfg, prompt, helper, previewLines)
@@ -127,7 +128,7 @@ func (v *Model) showMessageConfirmDialog(prompt string, helper string, previewLi
 			layers.WithOverlay(),
 		).
 		SendToFront(confirmModalLayerName)
-	v.app.SetFocus(dialog)
+	sendFocus(v.app, dialog)
 }
 
 func (v *Model) showPinConfirmDialog(previewLines []tview.Line, onDone func(label string)) {

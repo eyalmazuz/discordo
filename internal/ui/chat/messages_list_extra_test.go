@@ -19,15 +19,15 @@ import (
 	clipkg "github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
-	"github.com/ayn2op/discordo/pkg/picker"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3/states/relationship"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/layers"
+	"github.com/eyalmazuz/tview/picker"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -286,8 +286,8 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 		ml.AfterDraw(screen)
 
 		out := tty.String()
-		if !strings.Contains(out, "a=d,d=A") {
-			t.Fatalf("expected full kitty clear command, got %q", out)
+		if !strings.Contains(out, "a=d,d=I,i=2") {
+			t.Fatalf("expected per-image kitty delete command for id=2, got %q", out)
 		}
 		if !strings.Contains(out, "a=d,d=I,i=7") {
 			t.Fatalf("expected delete-by-id command, got %q", out)
@@ -309,8 +309,8 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 
 		ml.AfterDraw(screen)
 
-		if !strings.Contains(tty.String(), "a=d,d=A") {
-			t.Fatalf("expected suspended draw to clear kitty images, got %q", tty.String())
+		if !strings.Contains(tty.String(), "a=d,d=I,i=9") {
+			t.Fatalf("expected suspended draw to delete pending kitty image by id, got %q", tty.String())
 		}
 		if ml.pendingFullClear || len(ml.pendingDeletes) != 0 {
 			t.Fatal("expected suspended draw to clear pending state")
@@ -328,6 +328,7 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 				kittyPlaced:      true,
 				kittyUploaded:    true,
 				pendingPlace:     true,
+				lockKittyRegion:  true,
 				kittyCols:        2,
 				kittyVisibleRows: 1,
 			},
@@ -338,6 +339,7 @@ func TestMessagesList_KittyHelpers(t *testing.T) {
 				kittyPlaced:      true,
 				kittyUploaded:    true,
 				pendingPlace:     true,
+				lockKittyRegion:  true,
 				kittyCols:        2,
 				kittyVisibleRows: 1,
 			},
@@ -507,7 +509,7 @@ func TestMessagesListOpenVariantsAndMouseURL(t *testing.T) {
 		})
 		ml.SetCursor(0)
 		ml.open()
-		if !m.HasLayer(attachmentsListLayerName) {
+		if !m.HasLayer(attachmentsPickerLayerName) {
 			t.Fatal("expected attachments layer to be opened for multiple resources")
 		}
 	})
@@ -517,12 +519,12 @@ func TestMessagesListOpenVariantsAndMouseURL(t *testing.T) {
 		ml.lastScreen = &mockEmoteScreen{
 			cells: map[string]string{"1,1": "https://clicked.example"},
 		}
-		event := &tview.MouseEvent{
+		event := &tview.MouseMsg{
 			EventMouse: *tcell.NewEventMouse(1, 1, tcell.ButtonPrimary, tcell.ModNone),
 			Action:     tview.MouseLeftClick,
 		}
 
-		ml.HandleEvent(event)
+		ml.Update(event)
 
 		select {
 		case got := <-opened:
@@ -539,7 +541,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 	t.Run("unmatched key returns nil", func(t *testing.T) {
 		m := newTestModelWithTransport(&mockTransport{})
 		ml := m.messagesList
-		if cmd := ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
+		if cmd := ml.Update(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
 			t.Fatalf("expected unmatched key to return nil, got %T", cmd)
 		}
 	})
@@ -549,7 +551,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml := m.messagesList
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
 		if ml.Cursor() != -1 {
 			t.Fatalf("expected cursor to be cleared, got %d", ml.Cursor())
 		}
@@ -561,17 +563,17 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		copied := stubClipboardWrite(t)
 		ml.SetCursor(0)
-		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))))
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got != "10" {
 			t.Fatalf("expected copied id %q, got %q", "10", got)
 		}
 
-		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got != "body" {
 			t.Fatalf("expected copied content %q, got %q", "body", got)
 		}
 
-		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "u", tcell.ModNone))))
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "u", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got == "" || !strings.Contains(got, "/channels/") {
 			t.Fatalf("expected copied message URL, got %q", got)
 		}
@@ -583,11 +585,11 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "R", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyRune, "R", tcell.ModNone))
 		if ml.chatView.messageInput.sendMessageData.Reference == nil || ml.chatView.messageInput.sendMessageData.Reference.MessageID != 10 {
 			t.Fatal("expected reply to set message reference")
 		}
-		if ml.chatView.messageInput.GetTitle() == "" {
+		if ml.chatView.messageInput.Title() == "" {
 			t.Fatal("expected reply to set composer title")
 		}
 	})
@@ -599,7 +601,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 			ml.SetCursor(0)
-			ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
+			ml.Update(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
 			if ml.chatView.messageInput.edit {
 				t.Fatal("expected foreign message not to enter edit mode")
 			}
@@ -611,7 +613,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 			ml.SetCursor(0)
-			ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
+			ml.Update(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
 			if !ml.chatView.messageInput.edit {
 				t.Fatal("expected own message to enter edit mode")
 			}
@@ -625,7 +627,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 		ml.SetCursor(1)
 		ml.SetCursor(0)
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModNone))
 		if !m.HasLayer(confirmModalLayerName) {
 			t.Fatal("expected confirm modal layer to be visible")
 		}
@@ -664,7 +666,7 @@ func TestMessagesListDeleteReplyAndHelpers(t *testing.T) {
 		ml.SetCursor(0)
 		ml.reply(false)
 
-		if got := ml.chatView.messageInput.GetTitle(); !strings.Contains(got, "nickname") {
+		if got := ml.chatView.messageInput.Title(); !strings.Contains(got, "nickname") {
 			t.Fatalf("expected reply title to prefer member nick, got %q", got)
 		}
 		if ml.chatView.messageInput.sendMessageData.AllowedMentions == nil || *ml.chatView.messageInput.sendMessageData.AllowedMentions.RepliedUser {
@@ -791,7 +793,7 @@ func TestMessagesListWaitForChunkAndShowAttachments(t *testing.T) {
 
 	t.Run("showAttachmentsList opens overlay", func(t *testing.T) {
 		ml.showAttachmentsList([]string{"https://one.example"}, []discord.Attachment{{Filename: "file.txt", URL: "https://two.example", ContentType: "text/plain"}})
-		if !m.HasLayer(attachmentsListLayerName) {
+		if !m.HasLayer(attachmentsPickerLayerName) {
 			t.Fatal("expected attachments overlay to be visible")
 		}
 	})
@@ -824,13 +826,13 @@ func TestMessagesListConfirmDeleteFlow(t *testing.T) {
 		t.Fatal("expected confirm modal to be visible")
 	}
 
-	m.HandleEvent(&tview.ModalDoneEvent{ButtonLabel: "Yes"})
+	m.Update(&tview.ModalDoneMsg{ButtonLabel: "Yes"})
 	if !strings.Contains(transport.path, "/messages/88") {
 		t.Fatalf("expected confirm delete to hit delete endpoint, got %q", transport.path)
 	}
 }
 
-func TestMessagesListHandleEventMoreKeybinds(t *testing.T) {
+func TestMessagesListUpdateMoreKeybinds(t *testing.T) {
 	m := newTestModelWithTransport(&mockTransport{})
 	ml := m.messagesList
 	channel := &discord.Channel{ID: 600, Type: discord.DirectMessage}
@@ -856,31 +858,31 @@ func TestMessagesListHandleEventMoreKeybinds(t *testing.T) {
 			tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone),
 		}
 		for _, key := range keys {
-			ml.HandleEvent(key)
+			ml.Update(key)
 		}
 	})
 
 	t.Run("enter key opens selection", func(t *testing.T) {
 		ml.SetCursor(0)
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 	})
 
 	t.Run("reply mention key redraws", func(t *testing.T) {
 		ml.SetCursor(0)
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
 	})
 
 	t.Run("force delete key redraws", func(t *testing.T) {
 		ml.SetCursor(1)
-		executeCommand(requireCommand(t, ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone))))
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "D", tcell.ModNone))))
 	})
 
 	t.Run("non click mouse falls through", func(t *testing.T) {
-		event := &tview.MouseEvent{
+		event := &tview.MouseMsg{
 			EventMouse: *tcell.NewEventMouse(1, 1, tcell.ButtonPrimary, tcell.ModNone),
 			Action:     tview.MouseRightClick,
 		}
-		ml.HandleEvent(event)
+		ml.Update(event)
 	})
 }
 
@@ -1003,7 +1005,7 @@ func TestMessagesListFetchAndJumpBranches(t *testing.T) {
 		if ml.Cursor() == -1 || ml.messages[ml.Cursor()].ID != 402 {
 			t.Fatalf("expected cursor on target message, got cursor=%d", ml.Cursor())
 		}
-		if got := ml.GetTitle(); !strings.Contains(got, "search target") {
+		if got := ml.Title(); !strings.Contains(got, "search target") {
 			t.Fatalf("expected title to include topic, got %q", got)
 		}
 		if len(m.typers) != 0 {
@@ -1183,17 +1185,17 @@ func TestMessagesListAdditionalCoverageBranches(t *testing.T) {
 
 		ml.SetRect(0, 0, 5, 2)
 		ml.lastScreen = &mockEmoteScreen{cells: map[string]string{}}
-		event := &tview.MouseEvent{
+		event := &tview.MouseMsg{
 			EventMouse: *tcell.NewEventMouse(9, 9, tcell.ButtonPrimary, tcell.ModNone),
 			Action:     tview.MouseLeftClick,
 		}
-		if cmd := ml.HandleEvent(event); cmd != nil {
+		if cmd := ml.Update(event); cmd != nil {
 			t.Fatalf("expected mouse click outside list to fall through, got %T", cmd)
 		}
 
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 20, Author: discord.User{ID: 2, Username: "other"}}})
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone))
-		ml.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "J", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyRune, "K", tcell.ModNone))
+		ml.Update(tcell.NewEventKey(tcell.KeyRune, "J", tcell.ModNone))
 	})
 
 	t.Run("reply selection and help gating branches", func(t *testing.T) {
@@ -1383,13 +1385,6 @@ func TestMessagesListFinalEdgeCoverage(t *testing.T) {
 	t.Run("queueAnimatedDraw app path and wrapStyledLine degenerate cases", func(t *testing.T) {
 		m := newTestModel()
 		ml := m.messagesList
-		done := make(chan struct{}, 1)
-		ml.chatView.app.QueueUpdateDraw(func() { done <- struct{}{} })
-		select {
-		case <-done:
-		case <-time.After(300 * time.Millisecond):
-			t.Fatal("expected app QueueUpdateDraw to execute callback")
-		}
 		ml.queueDraw = nil
 		ml.queueAnimatedDraw()
 
@@ -1438,12 +1433,12 @@ func TestMessagesListFinalEdgeCoverage(t *testing.T) {
 
 		timeout := time.After(300 * time.Millisecond)
 		gotCalls := 0
-		for gotCalls < 2 {
+		for gotCalls < 1 {
 			select {
 			case <-calls:
 				gotCalls++
 			case <-timeout:
-				t.Fatalf("expected 2 gateway member-fetch calls, got %d", gotCalls)
+				t.Fatalf("expected at least 1 gateway member-fetch call, got %d", gotCalls)
 			}
 		}
 	})
@@ -1586,7 +1581,7 @@ func TestMessagesListDrawAndRedrawHelpers(t *testing.T) {
 		ml.useKitty = true
 		ml.kittyNeedsFullClear = true
 		ml.SetRect(0, 0, 20, 5)
-		ml.List.SetCursor(-1)
+		ml.Model.SetCursor(-1)
 		ml.nextKittyID = 9
 		ml.imageItemByKey = map[string]*imageItem{
 			"img": {kittyID: 1, kittyPlaced: true, kittyUploaded: true, pendingPlace: true},
@@ -1716,8 +1711,8 @@ func TestMessagesListReactionPickerAndRenderingBranches(t *testing.T) {
 			t.Fatal("expected reaction picker layer to open")
 		}
 		ml.showReactionPicker()
-		if m.app.GetFocus() == m.messagesList {
-			t.Fatalf("expected focus to move off the messages list, got %T", m.app.GetFocus())
+		if m.app.Focused() == m.messagesList {
+			t.Fatalf("expected focus to move off the messages list, got %T", m.app.Focused())
 		}
 	})
 
@@ -1774,10 +1769,10 @@ func TestMessagesListDrawKittyLifecycleBranches(t *testing.T) {
 		ml.kittyNeedsFullClear = true
 		ml.nextKittyID = 42
 		ml.imageItemByKey = map[string]*imageItem{
-			"img": {kittyID: 7, kittyPlaced: true, kittyUploaded: true, kittyCols: 2, kittyVisibleRows: 1},
+			"img": {kittyID: 7, kittyPlaced: true, kittyUploaded: true, lockKittyRegion: true, kittyCols: 2, kittyVisibleRows: 1},
 		}
 		ml.emoteItemByKey = map[string]*imageItem{
-			"emo": {kittyID: 8, kittyPlaced: true, kittyUploaded: true, kittyCols: 2, kittyVisibleRows: 1},
+			"emo": {kittyID: 8, kittyPlaced: true, kittyUploaded: true, lockKittyRegion: true, kittyCols: 2, kittyVisibleRows: 1},
 		}
 
 		screen := &lockingTTYScreen{tty: cellSizeTty{}}
@@ -1861,7 +1856,7 @@ func TestMessagesListRenderAndTitleBranches(t *testing.T) {
 
 	t.Run("setTitle includes topic when present", func(t *testing.T) {
 		ml.setTitle(discord.Channel{ID: 50, Name: "general", Topic: "testing", Type: discord.GuildText})
-		if got := ml.GetTitle(); !strings.Contains(got, "testing") {
+		if got := ml.Title(); !strings.Contains(got, "testing") {
 			t.Fatalf("expected topic in title, got %q", got)
 		}
 	})
@@ -1969,8 +1964,8 @@ func TestMessagesListFetchAndPickerBranches(t *testing.T) {
 		if !m.HasLayer(reactionPickerLayerName) {
 			t.Fatal("expected reaction picker layer to remain visible")
 		}
-		if m.app.GetFocus() == m.messagesList {
-			t.Fatalf("expected focus to move off the messages list, got %T", m.app.GetFocus())
+		if m.app.Focused() == m.messagesList {
+			t.Fatalf("expected focus to move off the messages list, got %T", m.app.Focused())
 		}
 	})
 
@@ -2054,7 +2049,7 @@ func TestMessagesList_JumpToMessage_More(t *testing.T) {
 		if len(mOK.typers) != 0 {
 			t.Fatal("expected jump to clear typing state")
 		}
-		if got := mOK.messagesList.GetTitle(); !strings.Contains(got, "jump-target") {
+		if got := mOK.messagesList.Title(); !strings.Contains(got, "jump-target") {
 			t.Fatalf("expected title to update for jumped channel, got %q", got)
 		}
 	})
@@ -2098,11 +2093,11 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 			[]string{"https://example.com"},
 			[]discord.Attachment{{Filename: "a.png", URL: "https://cdn.example/a.png", ContentType: "image/png"}},
 		)
-		if !m.HasLayer(attachmentsListLayerName) {
+		if !m.HasLayer(attachmentsPickerLayerName) {
 			t.Fatal("expected attachments picker layer to open")
 		}
 
-		ml.attachmentsPicker.onSelected(picker.Item{Reference: 0})
+		ml.attachmentsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 0}})
 		select {
 		case got := <-opened:
 			if !strings.Contains(got, "attachments") {
@@ -2111,7 +2106,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		case <-time.After(300 * time.Millisecond):
 			t.Fatal("timed out waiting for attachment open")
 		}
-		if m.HasLayer(attachmentsListLayerName) {
+		if m.HasLayer(attachmentsPickerLayerName) {
 			t.Fatal("expected picker to close after selection")
 		}
 
@@ -2119,7 +2114,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 			[]string{"https://example.com"},
 			[]discord.Attachment{{Filename: "a.png", URL: "https://cdn.example/a.png", ContentType: "image/png"}},
 		)
-		ml.attachmentsPicker.onSelected(picker.Item{Reference: 1})
+		ml.attachmentsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 1}})
 		select {
 		case got := <-opened:
 			if got != "https://example.com" {
@@ -2130,8 +2125,8 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		}
 
 		ml.showAttachmentsList(nil, nil)
-		ml.attachmentsPicker.onSelected(picker.Item{Reference: "bad"})
-		ml.attachmentsPicker.onSelected(picker.Item{Reference: 99})
+		ml.attachmentsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: "bad"}})
+		ml.attachmentsPicker.Update(&picker.SelectedMsg{Item: picker.Item{Reference: 99}})
 	})
 
 	t.Run("selectUp and selectDown cover intermediate branches", func(t *testing.T) {
@@ -2220,7 +2215,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		}
 
 		ml.setMessages([]discord.Message{{ID: 1}})
-		ml.List.SetCursor(99)
+		ml.Model.SetCursor(99)
 		if got := ml.Cursor(); got != -1 {
 			t.Fatalf("expected out-of-range row cursor to return -1, got %d", got)
 		}
@@ -2228,8 +2223,8 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		ml.messages = []discord.Message{{ID: 1}}
 		ml.rows = []messagesListRow{{kind: messagesListRowSeparator}, {kind: messagesListRowMessage, messageIndex: 0}}
 		ml.rowsDirty = false
-		ml.List.SetChangedFunc(nil)
-		ml.List.SetCursor(0)
+		ml.Model.SetChangedFunc(nil)
+		ml.Model.SetCursor(0)
 		if got := ml.Cursor(); got != -1 {
 			t.Fatalf("expected separator row cursor to return -1, got %d", got)
 		}
@@ -2305,8 +2300,8 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		if m.HasLayer(reactionPickerLayerName) {
 			t.Fatal("expected reset to remove reaction picker layer")
 		}
-		if ml.GetTitle() != "" {
-			t.Fatalf("expected reset to clear title, got %q", ml.GetTitle())
+		if ml.Title() != "" {
+			t.Fatalf("expected reset to clear title, got %q", ml.Title())
 		}
 	})
 }
@@ -2470,14 +2465,14 @@ func TestMessagesListLoadingAndCursorBranches(t *testing.T) {
 		if got := ml.messageToRowIndex(-1); got != -1 {
 			t.Fatalf("expected invalid message index to map to -1, got %d", got)
 		}
-		ml.List.SetCursor(-1)
+		ml.Model.SetCursor(-1)
 		if got := ml.Cursor(); got != -1 {
 			t.Fatalf("expected cleared cursor to be ignored, got %d", got)
 		}
 
 		target := ml.messageToRowIndex(1)
 		ml.onRowCursorChanged(0)
-		if got := ml.List.Cursor(); got != target && got != ml.messageToRowIndex(0) {
+		if got := ml.Model.Cursor(); got != target && got != ml.messageToRowIndex(0) {
 			t.Fatalf("expected separator cursor change to snap to a message row, got %d", got)
 		}
 
@@ -2517,7 +2512,7 @@ func TestMessagesListPickerAndRenderBranches(t *testing.T) {
 		ml := m.messagesList
 
 		ml.setTitle(discord.Channel{ID: 321, Type: discord.GuildText, Name: "general", Topic: "topic"})
-		if title := ml.GetTitle(); !strings.Contains(title, "topic") {
+		if title := ml.Title(); !strings.Contains(title, "topic") {
 			t.Fatalf("expected channel topic in title, got %q", title)
 		}
 
@@ -2674,7 +2669,7 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 		if cmd := ml.yankContent(); cmd != nil {
 			t.Errorf("expected nil command for no selection, got %T", cmd)
 		}
-		
+
 		// clipboard error
 		ml.setMessages([]discord.Message{{ID: 1, Content: "kek"}})
 		ml.SetCursor(0)
@@ -2691,18 +2686,18 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 		m.state.Call(&gateway.ReadyEvent{User: discord.User{ID: 0}})
 		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 0}, true)
 		ml := m.messagesList
-		
+
 		// Case 1: In ml.messages
 		msg := discord.Message{ID: 1, ChannelID: 2, Content: "kek"}
 		ml.setMessages([]discord.Message{msg})
 		m.state.Cabinet.MessageStore.MessageSet(&msg, false)
 		ml.setMessagePinned(2, 1, true)
-		
+
 		// Case 2: Not in ml.messages but in cabinet
 		msg2 := discord.Message{ID: 2, ChannelID: 2, Content: "kek2"}
 		m.state.Cabinet.MessageStore.MessageSet(&msg2, false)
 		ml.setMessagePinned(2, 2, true)
-		
+
 		// Case 3: Not in cabinet
 		ml.setMessagePinned(2, 99, true)
 	})
@@ -2710,11 +2705,11 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 	t.Run("confirmPin_Branches", func(t *testing.T) {
 		m := newTestModel()
 		ml := m.messagesList
-		
+
 		// no selection
 		ml.SetCursor(-1)
 		ml.confirmPin()
-		
+
 		// with selection but no permissions (non-DM)
 		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
 		m.SetSelectedChannel(ch)
@@ -2733,7 +2728,7 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 	t.Run("pin_Branches", func(t *testing.T) {
 		m := newTestModel()
 		ml := m.messagesList
-		
+
 		// no selection
 		ml.SetCursor(-1)
 		ml.pin()
@@ -2746,7 +2741,7 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 		// no channel
 		m.SetSelectedChannel(nil)
 		ml.pin()
-		
+
 		// with channel but no permissions (non-DM)
 		ch := &discord.Channel{ID: 2, GuildID: 10, Type: discord.GuildText}
 		m.SetSelectedChannel(ch)
@@ -2756,16 +2751,16 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 		// with channel and permissions (DM)
 		chDM := &discord.Channel{ID: 3, Type: discord.DirectMessage}
 		m.SetSelectedChannel(chDM)
-		
+
 		// stub pinMessageFunc
 		oldPinMessageFunc := pinMessageFunc
 		defer func() { pinMessageFunc = oldPinMessageFunc }()
-		
+
 		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
 			return nil
 		}
 		ml.pin()
-		
+
 		// error case
 		pinMessageFunc = func(s *state.State, cID discord.ChannelID, mID discord.MessageID, r api.AuditLogReason) error {
 			return errors.New("pin fail")

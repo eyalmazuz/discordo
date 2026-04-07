@@ -1,18 +1,18 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/http"
+	"github.com/ayn2op/discordo/internal/notifications"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/flex"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/session"
@@ -23,8 +23,60 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/diamondburned/ningen/v3/states/read"
+	"github.com/eyalmazuz/tview"
+	"github.com/eyalmazuz/tview/flex"
+	"github.com/eyalmazuz/tview/keybind"
+	"github.com/eyalmazuz/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
+
+var (
+	newOpenState = func(token string, id gateway.Identifier) *ningen.State {
+		session := session.NewCustom(id, http.NewClient(token), handler.New())
+		state := state.NewFromSession(session, defaultstore.New())
+		return ningen.FromState(state)
+	}
+	openNingenState = func(st *ningen.State) error {
+		return st.Open(context.Background())
+	}
+	notifyMessage = notifications.Notify
+)
+
+type redrawMsg struct{ tcell.EventTime }
+
+
+type closeLayerEvent struct {
+	tcell.EventTime
+	name string
+}
+
+func (m *redrawMsg) When() time.Time { return m.EventTime.When() }
+
+var typingAfterFunc = time.AfterFunc
+
+func triggerRedraw(app *tview.Application) {
+	if app != nil {
+		go app.Send(&redrawMsg{})
+	}
+}
+
+func sendFocus(app *tview.Application, target tview.Model) {
+	if app == nil || target == nil {
+		return
+	}
+	appValue := reflect.ValueOf(app).Elem()
+	focusField := appValue.FieldByName("focus")
+	current := reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem()
+	if current.IsValid() && !current.IsNil() {
+		if focused, ok := current.Interface().(tview.Model); ok && focused != nil {
+			focused.Blur()
+		}
+	}
+	reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem().Set(reflect.ValueOf(target))
+	target.Focus(func(next tview.Model) {
+		sendFocus(app, next)
+	})
+}
 
 const typingDuration = 10 * time.Second
 
@@ -35,6 +87,9 @@ const (
 
 	channelsPickerLayerName    = "channelsPicker"
 	attachmentsPickerLayerName = "attachmentsPicker"
+	messageSearchLayerName     = "messageSearch"
+	pinnedMessagesLayerName    = "pinnedMessages"
+	reactionPickerLayerName    = "reactionPicker"
 )
 
 type Model struct {
@@ -49,6 +104,8 @@ type Model struct {
 	messagesList   *messagesList
 	messageInput   *messageInput
 	channelsPicker *channelsPicker
+	messageSearch  *messageSearchPopup
+	pinnedMessages *pinnedMessagesPopup
 
 	selectedChannel   *discord.Channel
 	selectedChannelMu sync.RWMutex
@@ -83,6 +140,8 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 	m.messagesList = newMessagesList(cfg, m)
 	m.messageInput = newMessageInput(cfg, m)
 	m.channelsPicker = newChannelsPicker(cfg, m)
+	m.messageSearch = newMessageSearchPopup(cfg, m, m.messagesList)
+	m.pinnedMessages = newPinnedMessagesPopup(cfg, m, m.messagesList)
 
 	identifyProps := http.IdentifyProperties()
 	gateway.DefaultIdentity = identifyProps
@@ -93,9 +152,7 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 	id := gateway.DefaultIdentifier(token)
 	id.Compress = false
 
-	session := session.NewCustom(id, http.NewClient(token), handler.New())
-	state := state.NewFromSession(session, defaultstore.New())
-	m.state = ningen.FromState(state)
+	m.state = newOpenState(token, id)
 
 	m.events = make(chan gateway.Event)
 	m.state.AddHandler(m.events)
@@ -106,7 +163,24 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 
 	m.SetBackgroundLayerStyle(m.cfg.Theme.Dialog.BackgroundStyle.Style)
 	m.buildLayout()
+	app.SetAfterDrawFunc(func(screen tcell.Screen) {
+		m.messagesList.AfterDraw(screen)
+		if m.messageInput != nil && m.messageInput.mentionsList != nil {
+			if afterDrawer, ok := any(m.messageInput.mentionsList).(interface{ AfterDraw(tcell.Screen) }); ok {
+				afterDrawer.AfterDraw(screen)
+			}
+		}
+		if m.messagesList != nil && m.messagesList.reactionPicker != nil {
+			if afterDrawer, ok := any(m.messagesList.reactionPicker).(interface{ AfterDraw(tcell.Screen) }); ok {
+				afterDrawer.AfterDraw(screen)
+			}
+		}
+	})
 	return m
+}
+
+func NewView(app *tview.Application, cfg *config.Config, token string) *Model {
+	return NewModel(app, cfg, token)
 }
 
 func (m *Model) SelectedChannel() *discord.Channel {
@@ -167,6 +241,73 @@ func (m *Model) openPicker() {
 func (m *Model) closePicker() {
 	m.RemoveLayer(channelsPickerLayerName)
 	m.channelsPicker.Refresh()
+}
+
+func (m *Model) hasPopupOverlay() bool {
+	return m.GetVisible(mentionsListLayerName) ||
+		m.GetVisible(channelsPickerLayerName) ||
+		m.GetVisible(messageSearchLayerName) ||
+		m.GetVisible(pinnedMessagesLayerName) ||
+		m.GetVisible(reactionPickerLayerName) ||
+		m.GetVisible(attachmentsPickerLayerName) ||
+		m.GetVisible(confirmModalLayerName)
+}
+
+func (m *Model) openMessageSearch() {
+	selected := m.SelectedChannel()
+	if selected == nil || m.messageSearch == nil {
+		return
+	}
+	if m.GetVisible(messageSearchLayerName) {
+		m.messageSearch.FocusInput()
+		return
+	}
+	if m.GetVisible(attachmentsPickerLayerName) ||
+		m.GetVisible(reactionPickerLayerName) ||
+		m.GetVisible(confirmModalLayerName) ||
+		m.GetVisible(channelsPickerLayerName) {
+		return
+	}
+
+	m.messageInput.removeMentionsList()
+	m.messageSearch.Prepare(*selected, m.app.Focused())
+	m.AddLayer(
+		ui.Centered(m.messageSearch, m.cfg.Picker.Width, m.cfg.Picker.Height),
+		layers.WithName(messageSearchLayerName),
+		layers.WithResize(true),
+		layers.WithVisible(true),
+		layers.WithOverlay(),
+	).SendToFront(messageSearchLayerName)
+	m.messageSearch.FocusInput()
+}
+
+func (m *Model) openPinnedMessages() {
+	selected := m.SelectedChannel()
+	if selected == nil || m.pinnedMessages == nil {
+		return
+	}
+	if m.GetVisible(pinnedMessagesLayerName) {
+		m.pinnedMessages.FocusList()
+		return
+	}
+	if m.GetVisible(attachmentsPickerLayerName) ||
+		m.GetVisible(reactionPickerLayerName) ||
+		m.GetVisible(confirmModalLayerName) ||
+		m.GetVisible(channelsPickerLayerName) ||
+		m.GetVisible(messageSearchLayerName) {
+		return
+	}
+
+	m.messageInput.removeMentionsList()
+	m.pinnedMessages.Prepare(*selected, m.app.Focused())
+	m.AddLayer(
+		ui.Centered(m.pinnedMessages, m.cfg.Picker.Width, m.cfg.Picker.Height),
+		layers.WithName(pinnedMessagesLayerName),
+		layers.WithResize(true),
+		layers.WithVisible(true),
+		layers.WithOverlay(),
+	).SendToFront(pinnedMessagesLayerName)
+	m.pinnedMessages.FocusList()
 }
 
 func (m *Model) toggleGuildsTree() tview.Cmd {
@@ -264,6 +405,15 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		case *gateway.MessageDeleteEvent:
 			m.onMessageDelete(eventMsg)
 
+		case *gateway.MessageReactionAddEvent:
+			m.onMessageReaction(eventMsg.ChannelID, eventMsg.MessageID)
+		case *gateway.MessageReactionRemoveEvent:
+			m.onMessageReaction(eventMsg.ChannelID, eventMsg.MessageID)
+		case *gateway.MessageReactionRemoveAllEvent:
+			m.onMessageReaction(eventMsg.ChannelID, eventMsg.MessageID)
+		case *gateway.MessageReactionRemoveEmojiEvent:
+			m.onMessageReaction(eventMsg.ChannelID, eventMsg.MessageID)
+
 		case *gateway.GuildMembersChunkEvent:
 			m.onGuildMembersChunk(eventMsg)
 		case *gateway.GuildMemberRemoveEvent:
@@ -289,6 +439,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		}
 
 		m.SetSelectedChannel(&msg.Channel)
+		if !msg.Channel.GuildID.IsValid() {
+			m.guildsTree.clearDMAlert(msg.Channel.ID)
+		}
 		m.clearTypers()
 		m.messageInput.stopTypingTimer()
 
@@ -314,6 +467,11 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			m.closeState(),
 			tview.Quit(),
 		)
+	case *closeLayerEvent:
+		if m.HasLayer(msg.name) {
+			m.HideLayer(msg.name)
+		}
+		return nil
 	case *tview.ModalDoneMsg:
 		if m.HasLayer(confirmModalLayerName) {
 			m.RemoveLayer(confirmModalLayerName)
@@ -330,6 +488,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return focusCmd
 		}
 	case *tview.KeyMsg:
+		if m.GetVisible(mentionsListLayerName) {
+			return m.Layers.Update(msg)
+		}
 		switch {
 		case keybind.Matches(msg, m.cfg.Keybinds.FocusGuildsTree.Keybind):
 			m.messageInput.removeMentionsList()
@@ -353,6 +514,12 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 
 		case keybind.Matches(msg, m.cfg.Keybinds.Logout.Keybind):
 			return tview.Batch(m.closeState(), m.logout())
+		case keybind.Matches(msg, m.cfg.Keybinds.ToggleMessageSearch.Keybind):
+			m.openMessageSearch()
+			return nil
+		case keybind.Matches(msg, m.cfg.Keybinds.TogglePinnedMessages.Keybind):
+			m.openPinnedMessages()
+			return nil
 		}
 	case *tabSuggestMsg:
 		// Member search completes in a command goroutine; resume suggestion
@@ -396,7 +563,7 @@ func (m *Model) addTyper(userID discord.UserID) {
 	if ok {
 		typer.Reset(typingDuration)
 	} else {
-		m.typers[userID] = time.AfterFunc(typingDuration, func() {
+		m.typers[userID] = typingAfterFunc(typingDuration, func() {
 			m.removeTyper(userID)
 		})
 	}

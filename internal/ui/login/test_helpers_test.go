@@ -7,7 +7,7 @@ import (
 	"github.com/gdamore/tcell/v3"
 )
 
-func runCommand(t *testing.T, cmd tview.Command) tcell.Event {
+func runCommand(t *testing.T, cmd tview.Cmd) tcell.Event {
 	t.Helper()
 	if cmd == nil {
 		return nil

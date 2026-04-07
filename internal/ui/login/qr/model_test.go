@@ -29,7 +29,7 @@ func TestModel_HandleEvent_LoginTriggering(t *testing.T) {
 	m := NewModel(app)
 
 	// Test InitEvent triggers connection
-	cmd := m.HandleEvent(&tview.InitEvent{})
+	cmd := m.Update(&tview.InitMsg{})
 	if cmd == nil {
 		t.Errorf("Expected a command for InitEvent, got nil")
 	}
@@ -46,7 +46,7 @@ func TestModel_HandleEvent_Cancel(t *testing.T) {
 
 	// Simulate pressing Escape to cancel
 	event := tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone)
-	cmd := m.HandleEvent(event)
+	cmd := m.Update(event)
 	if cmd == nil {
 		t.Errorf("Expected a command for Escape key, got nil")
 	}
@@ -60,23 +60,23 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 	app := tview.NewApplication()
 	m := NewModel(app)
 
-	t.Run("connCreateEvent", func(t *testing.T) {
-		m.HandleEvent(&connCreateEvent{})
+	t.Run("connCreateMsg", func(t *testing.T) {
+		m.Update(&connCreateMsg{})
 		if m.msg != "Connected. Handshaking..." {
 			t.Errorf("Expected message 'Connected. Handshaking...', got %q", m.msg)
 		}
 	})
 
-	t.Run("helloEvent", func(t *testing.T) {
-		m.HandleEvent(&helloEvent{heartbeatInterval: 1000})
+	t.Run("helloMsg", func(t *testing.T) {
+		m.Update(&helloMsg{heartbeatInterval: 1000})
 		if m.heartbeatInterval != 1000*time.Millisecond {
 			t.Errorf("Expected heartbeat interval 1s, got %v", m.heartbeatInterval)
 		}
 	})
 
-	t.Run("qrCodeEvent", func(t *testing.T) {
+	t.Run("qrCodeMsg", func(t *testing.T) {
 		qr, _ := qrcode.New("test", qrcode.Low)
-		m.HandleEvent(&qrCodeEvent{qrCode: qr})
+		m.Update(&qrCodeMsg{qrCode: qr})
 		if m.qrCode != qr {
 			t.Errorf("Expected qrCode to be set")
 		}
@@ -85,37 +85,37 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("userEvent", func(t *testing.T) {
-		m.HandleEvent(&userEvent{username: "testuser", discriminator: "1234"})
+	t.Run("userMsg", func(t *testing.T) {
+		m.Update(&userMsg{username: "testuser", discriminator: "1234"})
 		if m.msg != "Check your phone! Logging in as testuser#1234" {
 			t.Errorf("Unexpected message: %q", m.msg)
 		}
 	})
 
-	t.Run("userEvent_NoDiscriminator", func(t *testing.T) {
-		m.HandleEvent(&userEvent{username: "testuser", discriminator: "0"})
+	t.Run("userMsg_NoDiscriminator", func(t *testing.T) {
+		m.Update(&userMsg{username: "testuser", discriminator: "0"})
 		if m.msg != "Check your phone! Logging in as testuser" {
 			t.Errorf("Unexpected message: %q", m.msg)
 		}
 	})
 
-	t.Run("pendingLoginEvent", func(t *testing.T) {
-		m.HandleEvent(&pendingLoginEvent{ticket: "test-ticket"})
+	t.Run("pendingLoginMsg", func(t *testing.T) {
+		m.Update(&pendingLoginMsg{ticket: "test-ticket"})
 		if m.msg != "Authenticating..." {
 			t.Errorf("Expected message 'Authenticating...', got %q", m.msg)
 		}
 	})
 
-	t.Run("nonceProofEvent", func(t *testing.T) {
-		cmd := m.HandleEvent(&nonceProofEvent{encryptedNonce: "payload"})
+	t.Run("nonceProofMsg", func(t *testing.T) {
+		cmd := m.Update(&nonceProofMsg{encryptedNonce: "payload"})
 		if cmd == nil {
 			t.Fatal("expected nonce proof event to return a command")
 		}
 	})
 
 	t.Run("EventError", func(t *testing.T) {
-		errEvent := tcell.NewEventError(errors.New("test error"))
-		cmd := m.HandleEvent(errEvent)
+		errMsg := tcell.NewEventError(errors.New("test error"))
+		cmd := m.Update(errMsg)
 		if cmd == nil {
 			t.Fatal("expected EventError to return a command")
 		}
@@ -127,8 +127,8 @@ func TestModel_HandleEvent_CustomEvents(t *testing.T) {
 		cmd()
 	})
 
-	t.Run("cancelEvent", func(t *testing.T) {
-		m.HandleEvent(&cancelEvent{})
+	t.Run("cancelMsg", func(t *testing.T) {
+		m.Update(&cancelMsg{})
 		if m.msg != "Login canceled on mobile" {
 			t.Errorf("Expected message 'Login canceled on mobile', got %q", m.msg)
 		}
@@ -140,19 +140,19 @@ func TestModel_HandleEvent_RemainingBranches(t *testing.T) {
 
 	t.Run("non escape key falls through to text view", func(t *testing.T) {
 		m.SetText("body")
-		if cmd := m.HandleEvent(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
+		if cmd := m.Update(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone)); cmd != nil {
 			t.Fatalf("expected non-escape key to fall through without command, got %T", cmd)
 		}
 	})
 
 	t.Run("heartbeat tick without connection", func(t *testing.T) {
-		if cmd := m.HandleEvent(&heartbeatTickEvent{}); cmd != nil {
+		if cmd := m.Update(&heartbeatTickMsg{}); cmd != nil {
 			t.Fatalf("expected nil command without connection, got %T", cmd)
 		}
 	})
 
 	t.Run("unhandled event returns nil", func(t *testing.T) {
-		if cmd := m.HandleEvent(tcell.NewEventResize(80, 24)); cmd != nil {
+		if cmd := m.Update(tcell.NewEventResize(80, 24)); cmd != nil {
 			t.Fatalf("expected resize event to return nil, got %T", cmd)
 		}
 	})

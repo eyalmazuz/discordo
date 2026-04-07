@@ -103,6 +103,8 @@ type messagesList struct {
 	pendingFullClear    bool     // deferred to AfterDraw
 	pendingDeletes      []uint32 // kitty IDs to delete in AfterDraw
 
+	fetchingOlder bool
+
 	fetchingMembers struct {
 		mu    sync.Mutex
 		value bool
@@ -178,6 +180,7 @@ func newMessagesList(cfg *config.Config, chatView *Model) *messagesList {
 
 func (ml *messagesList) reset() {
 	ml.stopAnimatedRedraw()
+	ml.fetchingOlder = false
 	ml.messages = nil
 	ml.rows = nil
 	ml.rowsDirty = false
@@ -194,7 +197,7 @@ func (ml *messagesList) reset() {
 
 func (ml *messagesList) Draw(screen tcell.Screen) {
 	ml.lastScreen = screen
-	overlayVisible := ml.chatView != nil && (ml.chatView.GetVisible(channelsPickerLayerName) || ml.chatView.GetVisible(messageSearchLayerName) || ml.chatView.GetVisible(pinnedMessagesLayerName) || ml.chatView.GetVisible(reactionPickerLayerName) || ml.chatView.GetVisible(attachmentsPickerLayerName))
+	overlayVisible := ml.chatView != nil && ml.chatView.hasPopupOverlay()
 	if ml.cfg.InlineImages.Enabled && ml.useKitty {
 		ml.setKittySuspended(screen, overlayVisible)
 		if !ml.kittySuspended {
@@ -330,16 +333,20 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 	fmt.Fprint(tty, "\x1b7")
 
 	if ml.kittySuspended {
-		_ = imgpkg.DeleteAllKitty(tty)
-		ml.pendingFullClear = false
+		// Only delete images owned by this component so overlays (e.g.
+		// mentionsList emote previews) keep their Kitty images.
+		for _, id := range ml.pendingDeletes {
+			_ = imgpkg.DeleteKittyByID(tty, id)
+		}
 		ml.pendingDeletes = ml.pendingDeletes[:0]
+		ml.pendingFullClear = false
 		fmt.Fprint(tty, "\x1b8")
 		return
 	}
 
-	// Full clear (delete all images from terminal).
+	// Full clear: delete only images owned by this component.
 	if ml.pendingFullClear {
-		_ = imgpkg.DeleteAllKitty(tty)
+		ml.deleteOwnedKittyImages(tty)
 		ml.pendingFullClear = false
 	}
 
@@ -364,6 +371,27 @@ func (ml *messagesList) AfterDraw(screen tcell.Screen) {
 	fmt.Fprint(tty, "\x1b8")
 }
 
+// deleteOwnedKittyImages deletes all Kitty images that belong to this
+// messagesList (images, emotes, stickers) without affecting images owned by
+// other components such as the mentionsList or reactionPicker.
+func (ml *messagesList) deleteOwnedKittyImages(tty io.Writer) {
+	for _, item := range ml.imageItemByKey {
+		if item.kittyID > 0 {
+			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
+		}
+	}
+	for _, item := range ml.emoteItemByKey {
+		if item.kittyID > 0 {
+			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
+		}
+	}
+	for _, item := range ml.stickerItemByKey {
+		if item.kittyID > 0 {
+			_ = imgpkg.DeleteKittyByID(tty, item.kittyID)
+		}
+	}
+}
+
 func (ml *messagesList) currentUseKitty() bool {
 	return ml.useKitty && !ml.kittySuspended
 }
@@ -373,21 +401,43 @@ func (ml *messagesList) setKittySuspended(screen tcell.Screen, suspended bool) {
 		return
 	}
 
+	wasSuspended := ml.kittySuspended
 	ml.kittySuspended = suspended
 	useKitty := ml.currentUseKitty()
+
+	// Only queue deletes on the transition into suspended state, not every frame.
+	needsCleanup := suspended && !wasSuspended
+
 	for _, item := range ml.imageItemByKey {
 		item.useKitty = useKitty
-		if suspended {
+		if needsCleanup {
 			item.pendingPlace = false
 			item.unlockRegion(screen)
+			if item.kittyPlaced {
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+			}
 			item.invalidateKittyPlacement()
 		}
 	}
 	for _, item := range ml.emoteItemByKey {
 		item.useKitty = useKitty
-		if suspended {
+		if needsCleanup {
 			item.pendingPlace = false
 			item.unlockRegion(screen)
+			if item.kittyPlaced {
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+			}
+			item.invalidateKittyPlacement()
+		}
+	}
+	for _, item := range ml.stickerItemByKey {
+		item.useKitty = useKitty
+		if needsCleanup {
+			item.pendingPlace = false
+			item.unlockRegion(screen)
+			if item.kittyPlaced {
+				ml.pendingDeletes = append(ml.pendingDeletes, item.kittyID)
+			}
 			item.invalidateKittyPlacement()
 		}
 	}
@@ -395,7 +445,7 @@ func (ml *messagesList) setKittySuspended(screen tcell.Screen, suspended bool) {
 
 func (ml *messagesList) updateCellDimensions(screen tcell.Screen) {
 	tty, ok := screen.Tty()
-	if !ok {
+	if !ok || tty == nil {
 		return
 	}
 	ws, err := tty.WindowSize()
@@ -1063,6 +1113,13 @@ func (ml *messagesList) drawReactions(builder *tview.LineBuilder, message discor
 		reactionStyle := baseStyle.Bold(r.Me)
 		emojiStyle := ui.MergeStyle(reactionStyle, ml.cfg.Theme.MessagesList.EmojiStyle.Style)
 		if r.Emoji.ID != 0 {
+			if ml.imageCache != nil {
+				ml.imageCache.Request(r.Emoji.EmojiURL(), 0, 0, func() {
+					if ml.chatView != nil && ml.chatView.app != nil {
+						triggerRedraw(ml.chatView.app)
+					}
+				})
+			}
 			builder.Write(markdown.CustomEmojiText(r.Emoji.Name, ml.cfg.InlineImages.Enabled), emojiStyle.Url(r.Emoji.EmojiURL()))
 		} else {
 			builder.Write(r.Emoji.Name, emojiStyle)
@@ -1408,8 +1465,7 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Open.Keybind) || msg.Key() == tcell.KeyEnter:
 			return ml.open()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.React.Keybind) || (msg.Key() == tcell.KeyRune && msg.Str() == "+"):
-			ml.showReactionPicker()
-			return nil
+			return ml.showReactionPicker()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
 			ml.confirmPin()
 			return nil
@@ -1428,8 +1484,9 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		return ml.Model.Update(msg)
 
 	case *olderMessagesLoadedMsg:
+		ml.fetchingOlder = false
 		selectedChannel := ml.chatView.SelectedChannel()
-		if selectedChannel == nil || selectedChannel.ID != msg.ChannelID {
+		if selectedChannel == nil || selectedChannel.ID != msg.ChannelID || len(msg.Older) == 0 {
 			return nil
 		}
 		prevCursor := ml.Cursor()
@@ -1529,11 +1586,15 @@ func (ml *messagesList) selectReply() {
 }
 
 func (ml *messagesList) fetchOlderMessages() tview.Cmd {
+	if ml.fetchingOlder {
+		return nil
+	}
 	selectedChannel := ml.chatView.SelectedChannel()
 	if selectedChannel == nil {
 		return nil
 	}
 
+	ml.fetchingOlder = true
 	channelID := selectedChannel.ID
 	before := ml.messages[0].ID
 	limit := uint(ml.cfg.MessagesLimit)
@@ -1541,10 +1602,10 @@ func (ml *messagesList) fetchOlderMessages() tview.Cmd {
 		messages, err := ml.chatView.state.MessagesBefore(channelID, before, limit)
 		if err != nil {
 			slog.Error("failed to fetch older messages", "err", err)
-			return nil
+			return newOlderMessagesLoadedMsg(channelID, nil)
 		}
 		if len(messages) == 0 {
-			return nil
+			return newOlderMessagesLoadedMsg(channelID, nil)
 		}
 
 		if guildID := selectedChannel.GuildID; guildID.IsValid() {
@@ -1777,22 +1838,24 @@ func (ml *messagesList) showAttachmentsList(urls []string, attachments []discord
 	return tview.SetFocus(ml.attachmentsPicker)
 }
 
-func (ml *messagesList) showReactionPicker() {
+func (ml *messagesList) showReactionPicker() tview.Cmd {
 	if _, err := ml.selectedMessage(); err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 
 	selected := ml.chatView.SelectedChannel()
 	if selected == nil {
-		return
+		return nil
 	}
 
-	emojis := availableEmojisForChannel(ml.chatView.state, selected)
-	ml.reactionPicker.SetItems(emojis)
 	if ml.chatView.HasLayer(reactionPickerLayerName) {
 		ml.chatView.RemoveLayer(reactionPickerLayerName)
 	}
+
+	// Load all emojis synchronously (same as ':' autocomplete path).
+	emojis := availableEmojisForChannel(ml.chatView.state, selected)
+	ml.reactionPicker.SetItems(emojis)
 
 	ml.chatView.
 		AddLayer(
@@ -1803,7 +1866,8 @@ func (ml *messagesList) showReactionPicker() {
 			layers.WithOverlay(),
 		).
 		SendToFront(reactionPickerLayerName)
-	ml.chatView.app.SetFocus(ml.reactionPicker)
+
+	return tview.SetFocus(ml.reactionPicker)
 }
 
 func (ml *messagesList) openAttachment(attachment discord.Attachment) {

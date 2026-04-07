@@ -7,10 +7,11 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/help"
 	"github.com/eyalmazuz/tview/keybind"
-	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -20,13 +21,13 @@ const (
 )
 
 type pinnedMessagesPopup struct {
-	*tview.List
+	*list.Model
 	cfg          *config.Config
 	chatView     *Model
 	messagesList *messagesList
 
 	channel       discord.Channel
-	previousFocus tview.Primitive
+	previousFocus tview.Model
 
 	pins        []discord.Message
 	status      string
@@ -41,7 +42,7 @@ var _ help.KeyMap = (*pinnedMessagesPopup)(nil)
 
 func newPinnedMessagesPopup(cfg *config.Config, chatView *Model, messagesList *messagesList) *pinnedMessagesPopup {
 	pp := &pinnedMessagesPopup{
-		List:         tview.NewList(),
+		Model:        list.NewModel(),
 		cfg:          cfg,
 		chatView:     chatView,
 		messagesList: messagesList,
@@ -68,7 +69,7 @@ func newPinnedMessagesPopup(cfg *config.Config, chatView *Model, messagesList *m
 	return pp
 }
 
-func (pp *pinnedMessagesPopup) Prepare(channel discord.Channel, previousFocus tview.Primitive) {
+func (pp *pinnedMessagesPopup) Prepare(channel discord.Channel, previousFocus tview.Model) {
 	pp.channel = channel
 	pp.previousFocus = previousFocus
 	pp.SetTitle("Pins in " + ui.ChannelToString(channel, pp.cfg.Icons, pp.chatView.state))
@@ -77,7 +78,7 @@ func (pp *pinnedMessagesPopup) Prepare(channel discord.Channel, previousFocus tv
 
 func (pp *pinnedMessagesPopup) FocusList() {
 	if pp.chatView != nil && pp.chatView.app != nil {
-		pp.chatView.app.SetFocus(pp)
+		sendFocus(pp.chatView.app, pp)
 	}
 }
 
@@ -105,45 +106,45 @@ func (pp *pinnedMessagesPopup) FullHelp() [][]keybind.Keybind {
 	}
 }
 
-func (pp *pinnedMessagesPopup) HandleEvent(event tcell.Event) tview.Command {
-	switch event := event.(type) {
-	case *tview.KeyEvent:
+func (pp *pinnedMessagesPopup) Update(msg tview.Msg) tview.Cmd {
+	switch msg := msg.(type) {
+	case *tview.KeyMsg:
 		keys := pp.cfg.Keybinds.Picker
 
 		switch {
-		case keybind.Matches(event, keys.Up.Keybind):
-			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Up.Keybind):
+			pp.Model.Update(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Down.Keybind):
-			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Down.Keybind):
+			pp.Model.Update(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Top.Keybind):
-			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Top.Keybind):
+			pp.Model.Update(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Bottom.Keybind):
-			pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+		case keybind.Matches(msg, keys.Bottom.Keybind):
+			pp.Model.Update(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 			return nil
-		case keybind.Matches(event, keys.Select.Keybind):
+		case keybind.Matches(msg, keys.Select.Keybind):
 			pp.selectCurrent()
 			return nil
-		case keybind.Matches(event, keys.Cancel.Keybind):
+		case keybind.Matches(msg, keys.Cancel.Keybind):
 			pp.close(pp.previousFocus)
 			return nil
 		}
 
-		if event.Key() == tcell.KeyRune {
-			switch event.Str() {
+		if msg.Key() == tcell.KeyRune {
+			switch msg.Str() {
 			case "j":
-				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+				pp.Model.Update(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 				return nil
 			case "k":
-				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+				pp.Model.Update(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 				return nil
 			case "g":
-				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
+				pp.Model.Update(tcell.NewEventKey(tcell.KeyHome, "", tcell.ModNone))
 				return nil
 			case "G":
-				pp.List.HandleEvent(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
+				pp.Model.Update(tcell.NewEventKey(tcell.KeyEnd, "", tcell.ModNone))
 				return nil
 			case "d":
 				pp.confirmUnpin()
@@ -154,13 +155,13 @@ func (pp *pinnedMessagesPopup) HandleEvent(event tcell.Event) tview.Command {
 			}
 		}
 
-		if event.Key() == tcell.KeyEnter {
+		if msg.Key() == tcell.KeyEnter {
 			pp.selectCurrent()
 			return nil
 		}
 	}
 
-	return pp.List.HandleEvent(event)
+	return pp.Model.Update(msg)
 }
 
 func (pp *pinnedMessagesPopup) refresh() {
@@ -206,7 +207,7 @@ func (pp *pinnedMessagesPopup) setStatus(text string, style tcell.Style) {
 	pp.SetFooter("Enter jump  d unpin  D force")
 }
 
-func (pp *pinnedMessagesPopup) buildItem(index int, cursor int) tview.ListItem {
+func (pp *pinnedMessagesPopup) buildItem(index int, cursor int) list.Item {
 	if len(pp.pins) == 0 {
 		if pp.status == "" || index != 0 {
 			return nil
@@ -346,12 +347,12 @@ func (pp *pinnedMessagesPopup) unpinCurrent() {
 	pp.SetFooter(fmt.Sprintf("%d pin(s)  Enter jump  d unpin  D force", len(pp.pins)))
 }
 
-func (pp *pinnedMessagesPopup) close(nextFocus tview.Primitive) {
+func (pp *pinnedMessagesPopup) close(nextFocus tview.Model) {
 	if pp.chatView != nil && pp.chatView.HasLayer(pinnedMessagesLayerName) {
 		pp.chatView.RemoveLayer(pinnedMessagesLayerName)
 	}
 	if pp.chatView != nil && pp.chatView.app != nil && nextFocus != nil {
-		pp.chatView.app.SetFocus(nextFocus)
+		sendFocus(pp.chatView.app, nextFocus)
 	}
 	pp.previousFocus = nil
 }
