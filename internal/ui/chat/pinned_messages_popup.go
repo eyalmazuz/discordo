@@ -300,7 +300,7 @@ func (pp *pinnedMessagesPopup) confirmUnpin() {
 	pp.chatView.showMessageConfirmDialog(
 		unpinConfirmPrompt,
 		unpinConfirmHelper,
-		pp.messagesList.renderMessage(*message, pp.cfg.Theme.MessagesList.SelectedMessageStyle.Style),
+		pp.messagesList.renderMessage(*message, pp.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false),
 		func(label string) {
 			if label == "yes" {
 				pp.unpinCurrent()

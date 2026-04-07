@@ -98,7 +98,7 @@ func TestMessagesList_RenderMessage_WithStickers(t *testing.T) {
 		},
 	}
 
-	lines := ml.renderMessage(msg, tcell.StyleDefault)
+	lines := ml.renderMessage(msg, tcell.StyleDefault, false)
 	found := false
 	for _, line := range lines {
 		for _, seg := range line {

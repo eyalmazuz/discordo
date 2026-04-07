@@ -90,11 +90,11 @@ func TestMessagesList_Branches(t *testing.T) {
 
 		// 2. GuildMemberJoin
 		msgJoin := discord.Message{Type: discord.GuildMemberJoinMessage, Author: discord.User{Username: "joiner"}}
-		ml.writeMessage(builder, msgJoin, baseStyle)
+		ml.writeMessage(builder, msgJoin, baseStyle, false)
 
 		// 3. ChannelPinned
 		msgPinned := discord.Message{Type: discord.ChannelPinnedMessage, Author: discord.User{Username: "pinner"}}
-		ml.writeMessage(builder, msgPinned, baseStyle)
+		ml.writeMessage(builder, msgPinned, baseStyle, false)
 	})
 
 	t.Run("drawAuthor_Member", func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestMessagesList_Branches(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		msg := discord.Message{Content: "```go\nfunc main() {}\n```"}
 		m.cfg.Markdown.Enabled = true
-		ml.drawContent(builder, msg, tcell.StyleDefault)
+		ml.drawContent(builder, msg, tcell.StyleDefault, false)
 	})
 
 	t.Run("drawDefaultMessage_Attachments", func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestMessagesList_Branches(t *testing.T) {
 				{Filename: "test.txt", URL: "https://example.com/test.txt"},
 			},
 		}
-		ml.drawDefaultMessage(builder, msg, tcell.StyleDefault)
+		ml.drawDefaultMessage(builder, msg, tcell.StyleDefault, false)
 	})
 }
 
@@ -253,7 +253,7 @@ func TestMessagesList_Draw_ExtraBranches(t *testing.T) {
 	t.Run("drawReplyMessage_NotFound", func(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		msg := discord.Message{ReferencedMessage: &discord.Message{ID: 99}}
-		ml.drawReplyMessage(builder, msg, tcell.StyleDefault)
+		ml.drawReplyMessage(builder, msg, tcell.StyleDefault, false)
 	})
 }
 
@@ -1280,7 +1280,7 @@ func TestMessagesListAdditionalHelperCoverage(t *testing.T) {
 		)
 
 		blockedBuilder := tview.NewLineBuilder()
-		ml.writeMessage(blockedBuilder, discord.Message{Author: discord.User{ID: 55, Username: "blocked"}}, tcell.StyleDefault)
+		ml.writeMessage(blockedBuilder, discord.Message{Author: discord.User{ID: 55, Username: "blocked"}}, tcell.StyleDefault, false)
 		if got := joinedLinesText(blockedBuilder.Finish()); !strings.Contains(got, "Blocked message") {
 			t.Fatalf("expected blocked-user text, got %q", got)
 		}
@@ -1473,7 +1473,7 @@ func TestMessagesListRemainingRenderBranches(t *testing.T) {
 				},
 			}},
 		}
-		ml.writeMessage(builder, msg, tcell.StyleDefault)
+		ml.writeMessage(builder, msg, tcell.StyleDefault, false)
 		if got := joinedLinesText(builder.Finish()); !strings.Contains(got, "forwarded body") {
 			t.Fatalf("expected forwarded message content, got %q", got)
 		}
@@ -1485,7 +1485,7 @@ func TestMessagesListRemainingRenderBranches(t *testing.T) {
 		m.cfg.Markdown.Enabled = true
 		builder := tview.NewLineBuilder()
 		builder.Write("prefix ", tcell.StyleDefault)
-		ml.drawContent(builder, discord.Message{Content: "\n\nhello"}, tcell.StyleDefault)
+		ml.drawContent(builder, discord.Message{Content: "\n\nhello"}, tcell.StyleDefault, false)
 		lines := builder.Finish()
 		if got := joinedLinesText(lines); !strings.Contains(got, "hello") {
 			t.Fatalf("expected markdown content to render body, got %q", got)
@@ -1722,16 +1722,16 @@ func TestMessagesListReactionPickerAndRenderingBranches(t *testing.T) {
 		baseStyle := tcell.StyleDefault
 
 		m.cfg.Markdown.Enabled = false
-		if lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "plain"}, baseStyle, false); root != nil || len(lines) == 0 {
+		if lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "plain"}, baseStyle, false, false); root != nil || len(lines) == 0 {
 			t.Fatalf("expected plain rendering without markdown root, got root=%v lines=%d", root, len(lines))
 		}
-		if lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "**forced**"}, baseStyle, true); root == nil || len(lines) == 0 {
+		if lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "**forced**"}, baseStyle, true, false); root == nil || len(lines) == 0 {
 			t.Fatalf("expected forced markdown rendering, got root=%v lines=%d", root, len(lines))
 		}
 
 		builder := tview.NewLineBuilder()
 		builder.Write("prefix ", baseStyle)
-		ml.drawContent(builder, discord.Message{Content: "plain text"}, baseStyle)
+		ml.drawContent(builder, discord.Message{Content: "plain text"}, baseStyle, false)
 		if len(builder.Finish()) == 0 {
 			t.Fatal("expected drawContent to append plain text")
 		}
@@ -1745,7 +1745,7 @@ func TestMessagesListReactionPickerAndRenderingBranches(t *testing.T) {
 				{Filename: "skip.png", URL: "https://example.com/skip.png", ContentType: "image/png"},
 				{Filename: "keep.txt", URL: "https://example.com/keep.txt", ContentType: "text/plain"},
 			},
-		}, baseStyle)
+		}, baseStyle, false)
 		rendered := builder.Finish()
 		flat := ""
 		for _, line := range rendered {
@@ -1865,7 +1865,7 @@ func TestMessagesListRenderAndTitleBranches(t *testing.T) {
 		msg := discord.Message{Content: "**bold**"}
 		m.cfg.Markdown.Enabled = false
 
-		plain, root := ml.renderContentLinesWithMarkdown(msg, tcell.StyleDefault, false)
+		plain, root := ml.renderContentLinesWithMarkdown(msg, tcell.StyleDefault, false, false)
 		if root != nil {
 			t.Fatal("expected plain rendering to skip markdown AST")
 		}
@@ -1873,7 +1873,7 @@ func TestMessagesListRenderAndTitleBranches(t *testing.T) {
 			t.Fatalf("expected plain text output, got %q", got)
 		}
 
-		rendered, root := ml.renderContentLinesWithMarkdown(msg, tcell.StyleDefault, true)
+		rendered, root := ml.renderContentLinesWithMarkdown(msg, tcell.StyleDefault, true, false)
 		if root == nil {
 			t.Fatal("expected forced markdown rendering to build an AST")
 		}
@@ -1887,7 +1887,7 @@ func TestMessagesListRenderAndTitleBranches(t *testing.T) {
 		builder := tview.NewLineBuilder()
 		ml.drawTimestamps(builder, discord.NewTimestamp(time.Now()), tcell.StyleDefault)
 		msg := discord.Message{Content: "\n```go\nfmt.Println(\"x\")\n```"}
-		ml.drawContent(builder, msg, tcell.StyleDefault)
+		ml.drawContent(builder, msg, tcell.StyleDefault, false)
 		lines := builder.Finish()
 		if len(lines) < 2 {
 			t.Fatalf("expected code block to start on a new line, got %d lines", len(lines))
@@ -1905,7 +1905,7 @@ func TestMessagesListRenderAndTitleBranches(t *testing.T) {
 				{Filename: "visible.txt", URL: "https://example.com/visible.txt", ContentType: "text/plain"},
 				{Filename: "hidden.png", URL: "https://example.com/hidden.png", ContentType: "image/png"},
 			},
-		}, tcell.StyleDefault)
+		}, tcell.StyleDefault, false)
 		text := joinedLinesText(builder.Finish())
 		if !strings.Contains(text, "visible.txt") {
 			t.Fatalf("expected non-image attachment to be rendered, got %q", text)
@@ -2168,7 +2168,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		ml.writeMessage(replyBuilder, discord.Message{
 			Type:              discord.InlinedReplyMessage,
 			ReferencedMessage: &discord.Message{ID: 1, Author: discord.User{Username: "root"}},
-		}, baseStyle)
+		}, baseStyle, false)
 		if got := joinedLinesText(replyBuilder.Finish()); !strings.Contains(got, "root") {
 			t.Fatalf("expected inline reply text, got %q", got)
 		}
@@ -2177,7 +2177,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		ml.writeMessage(pinnedBuilder, discord.Message{
 			Type:   discord.ChannelPinnedMessage,
 			Author: discord.User{Username: "pinner"},
-		}, baseStyle)
+		}, baseStyle, false)
 		if got := joinedLinesText(pinnedBuilder.Finish()); !strings.Contains(got, "pinned") {
 			t.Fatalf("expected pinned message text, got %q", got)
 		}
@@ -2186,7 +2186,7 @@ func TestMessagesListAttachmentAndNavigationUtilityBranches(t *testing.T) {
 		ml.writeMessage(otherBuilder, discord.Message{
 			Type:   discord.CallMessage,
 			Author: discord.User{Username: "caller"},
-		}, baseStyle)
+		}, baseStyle, false)
 		if got := joinedLinesText(otherBuilder.Finish()); !strings.Contains(got, "caller") {
 			t.Fatalf("expected fallback message to include author, got %q", got)
 		}
@@ -2532,7 +2532,7 @@ func TestMessagesListPickerAndRenderBranches(t *testing.T) {
 		ml := m.messagesList
 		m.cfg.Markdown.Enabled = false
 
-		lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "plain text"}, tcell.StyleDefault, false)
+		lines, root := ml.renderContentLinesWithMarkdown(discord.Message{Content: "plain text"}, tcell.StyleDefault, false, false)
 		if root != nil {
 			t.Fatal("expected markdown root to be nil when markdown is disabled")
 		}
@@ -2549,7 +2549,7 @@ func TestMessagesListPickerAndRenderBranches(t *testing.T) {
 				{Filename: "image.png", URL: "https://example.com/image.png", ContentType: "image/png"},
 				{Filename: "note.txt", URL: "https://example.com/note.txt", ContentType: "text/plain"},
 			},
-		}, tcell.StyleDefault)
+		}, tcell.StyleDefault, false)
 		lines = builder.Finish()
 		foundTextAttachment := false
 		for _, line := range lines {

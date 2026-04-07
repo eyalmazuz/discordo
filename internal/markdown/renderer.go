@@ -18,8 +18,11 @@ import (
 type Renderer struct {
 	cfg *config.Config
 
+	HideSpoilers bool
+
 	listIx     *int
 	listNested int
+	inSpoiler  int
 }
 
 const codeBlockIndent = "    "
@@ -35,9 +38,21 @@ func NewRenderer(cfg *config.Config) *Renderer {
 	return &Renderer{cfg: cfg}
 }
 
+func (r *Renderer) writeObscured(builder *tview.LineBuilder, text string, style tcell.Style) {
+	if r.HideSpoilers && r.inSpoiler > 0 {
+		var sb strings.Builder
+		for range text {
+			sb.WriteString("█")
+		}
+		text = sb.String()
+	}
+	builder.Write(text, style)
+}
+
 func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) []tview.Line {
 	r.listIx = nil
 	r.listNested = 0
+	r.inSpoiler = 0
 
 	builder := tview.NewLineBuilder()
 	styleStack := []tcell.Style{base}
@@ -68,7 +83,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *ast.Text:
 			if entering {
-				builder.Write(string(node.Segment.Value(source)), currentStyle())
+				r.writeObscured(builder, string(node.Segment.Value(source)), currentStyle())
 				switch {
 				case node.HardLineBreak():
 					builder.NewLine()
@@ -86,7 +101,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			if entering {
 				url := string(node.URL(source))
 				style := ui.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(url)
-				builder.Write(url, style)
+				r.writeObscured(builder, url, style)
 			}
 		case *ast.Link:
 			if entering {
@@ -127,23 +142,29 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *discordmd.Inline:
 			if entering {
+				if (node.Attr & discordmd.AttrSpoiler) != 0 {
+					r.inSpoiler++
+				}
 				pushStyle(applyInlineAttr(currentStyle(), node.Attr, linkDepth > 0))
 			} else {
+				if (node.Attr & discordmd.AttrSpoiler) != 0 {
+					r.inSpoiler--
+				}
 				popStyle()
 			}
 		case *discordmd.Mention:
 			if entering {
-				builder.Write(mentionText(node), ui.MergeStyle(currentStyle(), theme.MentionStyle.Style))
+				r.writeObscured(builder, mentionText(node), ui.MergeStyle(currentStyle(), theme.MentionStyle.Style))
 			}
 		case *discordmd.Emoji:
 			if entering {
 				style := ui.MergeStyle(currentStyle(), theme.EmojiStyle.Style)
 				if node.ID != "" {
 					style = style.Url(node.EmojiURL())
-					builder.Write(CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
+					r.writeObscured(builder, CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
 					break
 				}
-				builder.Write(":"+node.Name+":", style)
+				r.writeObscured(builder, ":"+node.Name+":", style)
 			}
 		}
 		return ast.WalkContinue, nil

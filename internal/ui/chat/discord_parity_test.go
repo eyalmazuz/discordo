@@ -32,7 +32,7 @@ func TestMessagesList_drawForwardedMessage_Parity(t *testing.T) {
 	}
 
 	// This should cover drawForwardedMessage and drawSnapshotContent
-	ml.drawForwardedMessage(builder, msg, baseStyle)
+	ml.drawForwardedMessage(builder, msg, baseStyle, false)
 }
 
 func TestMessagesList_SubscriptionMessages_Parity(t *testing.T) {
@@ -53,7 +53,7 @@ func TestMessagesList_SubscriptionMessages_Parity(t *testing.T) {
 			Type:   mt,
 			Author: discord.User{Username: "booster"},
 		}
-		ml.writeMessage(builder, msg, baseStyle)
+		ml.writeMessage(builder, msg, baseStyle, false)
 	}
 }
 

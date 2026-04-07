@@ -617,7 +617,7 @@ func (ml *messagesList) buildItem(index int, cursor int) list.Item {
 		return tview.NewTextView().
 			SetWrap(true).
 			SetWordWrap(true).
-			SetLines(ml.renderMessage(message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style))
+			SetLines(ml.renderMessage(message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false))
 	}
 
 	item, ok := ml.itemByID[message.ID]
@@ -625,15 +625,15 @@ func (ml *messagesList) buildItem(index int, cursor int) list.Item {
 		item = tview.NewTextView().
 			SetWrap(true).
 			SetWordWrap(true).
-			SetLines(ml.renderMessage(message, ml.cfg.Theme.MessagesList.MessageStyle.Style))
+			SetLines(ml.renderMessage(message, ml.cfg.Theme.MessagesList.MessageStyle.Style, true))
 		ml.itemByID[message.ID] = item
 	}
 	return item
 }
 
-func (ml *messagesList) renderMessage(message discord.Message, baseStyle tcell.Style) []tview.Line {
+func (ml *messagesList) renderMessage(message discord.Message, baseStyle tcell.Style, hideSpoilers bool) []tview.Line {
 	builder := tview.NewLineBuilder()
-	ml.writeMessage(builder, message, baseStyle)
+	ml.writeMessage(builder, message, baseStyle, hideSpoilers)
 	return builder.Finish()
 }
 
@@ -851,7 +851,7 @@ func (ml *messagesList) nearestMessageRowIndex(rowIndex int) int {
 	return -1
 }
 
-func (ml *messagesList) writeMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+func (ml *messagesList) writeMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
 	if ml.cfg.HideBlockedUsers {
 		isBlocked := ml.chatView.state.UserIsBlocked(message.Author.ID)
 		if isBlocked {
@@ -863,18 +863,18 @@ func (ml *messagesList) writeMessage(builder *tview.LineBuilder, message discord
 	switch message.Type {
 	case discord.DefaultMessage:
 		if message.Reference != nil && message.Reference.Type == discord.MessageReferenceTypeForward {
-			ml.drawForwardedMessage(builder, message, baseStyle)
+			ml.drawForwardedMessage(builder, message, baseStyle, hideSpoilers)
 		} else {
-			ml.drawDefaultMessage(builder, message, baseStyle)
+			ml.drawDefaultMessage(builder, message, baseStyle, hideSpoilers)
 		}
 	case discord.GuildMemberJoinMessage:
 		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 		ml.drawAuthor(builder, message, baseStyle)
 		builder.Write("joined the server.", baseStyle)
 	case discord.InlinedReplyMessage:
-		ml.drawReplyMessage(builder, message, baseStyle)
+		ml.drawReplyMessage(builder, message, baseStyle, hideSpoilers)
 	case discord.ChannelPinnedMessage:
-		ml.drawPinnedMessage(builder, message, baseStyle)
+		ml.drawPinnedMessage(builder, message, baseStyle, hideSpoilers)
 	default:
 		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 		ml.drawAuthor(builder, message, baseStyle)
@@ -926,8 +926,8 @@ func (ml *messagesList) memberForMessage(message discord.Message) *discord.Membe
 	return member
 }
 
-func (ml *messagesList) drawContent(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
-	lines, root := ml.renderContentLines(message, baseStyle)
+func (ml *messagesList) drawContent(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
+	lines, root := ml.renderContentLines(message, baseStyle, hideSpoilers)
 	if ml.chatView.cfg.Markdown.Enabled && builder.HasCurrentLine() {
 		startsWithCodeBlock := false
 		if root != nil {
@@ -958,16 +958,18 @@ func trimLeadingContentLines(lines []tview.Line, startsWithCodeBlock bool) []tvi
 	return lines
 }
 
-func (ml *messagesList) renderContentLines(message discord.Message, baseStyle tcell.Style) ([]tview.Line, ast.Node) {
-	return ml.renderContentLinesWithMarkdown(message, baseStyle, false)
+func (ml *messagesList) renderContentLines(message discord.Message, baseStyle tcell.Style, hideSpoilers bool) ([]tview.Line, ast.Node) {
+	return ml.renderContentLinesWithMarkdown(message, baseStyle, false, hideSpoilers)
 }
 
-func (ml *messagesList) renderContentLinesWithMarkdown(message discord.Message, baseStyle tcell.Style, forceMarkdown bool) ([]tview.Line, ast.Node) {
+func (ml *messagesList) renderContentLinesWithMarkdown(message discord.Message, baseStyle tcell.Style, forceMarkdown bool, hideSpoilers bool) ([]tview.Line, ast.Node) {
 	// Keep one rendering path for both normal messages and embed fragments so we preserve mention/link parsing behavior consistently across both.
 	if forceMarkdown || ml.chatView.cfg.Markdown.Enabled {
 		c := []byte(message.Content)
 		root := discordmd.ParseWithMessage(c, *ml.chatView.state.Cabinet, &message, false)
-		return ml.renderer.RenderLines(c, root, baseStyle), root
+		renderer := markdown.NewRenderer(ml.chatView.cfg)
+		renderer.HideSpoilers = hideSpoilers
+		return renderer.RenderLines(c, root, baseStyle), root
 	}
 
 	b := tview.NewLineBuilder()
@@ -975,7 +977,7 @@ func (ml *messagesList) renderContentLinesWithMarkdown(message discord.Message, 
 	return b.Finish(), nil
 }
 
-func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent discord.Message, snapshot discord.MessageSnapshotMessage, baseStyle tcell.Style) {
+func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent discord.Message, snapshot discord.MessageSnapshotMessage, baseStyle tcell.Style, hideSpoilers bool) {
 	// Convert discord.MessageSnapshotMessage to discord.Message with common fields.
 	message := discord.Message{
 		Type:            snapshot.Type,
@@ -992,16 +994,16 @@ func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent d
 		ChannelID:       parent.ChannelID,
 		GuildID:         parent.GuildID,
 	}
-	ml.drawContent(builder, message, baseStyle)
+	ml.drawContent(builder, message, baseStyle, hideSpoilers)
 }
 
-func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
 	if ml.cfg.Timestamps.Enabled {
 		ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 	}
 
 	ml.drawAuthor(builder, message, baseStyle)
-	ml.drawContent(builder, message, baseStyle)
+	ml.drawContent(builder, message, baseStyle, hideSpoilers)
 
 	if message.EditedTimestamp.IsValid() {
 		dimStyle := baseStyle.Dim(true)
@@ -1078,7 +1080,7 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 			msg.Content = line.Text
 			lineStyle := lineStyles[line.Kind]
 			// Embed descriptions are always markdown-rendered to match Discord's rich embed semantics, even when message markdown is globally disabled.
-			rendered, _ := ml.renderContentLinesWithMarkdown(msg, lineStyle, line.Kind == embedLineDescription)
+			rendered, _ := ml.renderContentLinesWithMarkdown(msg, lineStyle, line.Kind == embedLineDescription, false)
 			for _, renderedLine := range rendered {
 				if line.URL != "" {
 					renderedLine = lineWithURL(renderedLine, line.URL)
@@ -1372,16 +1374,16 @@ func isMarkdownEscapable(c byte) bool {
 	}
 }
 
-func (ml *messagesList) drawForwardedMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+func (ml *messagesList) drawForwardedMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
 	dimStyle := baseStyle.Dim(true)
 	ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 	ml.drawAuthor(builder, message, baseStyle)
 	builder.Write(ml.cfg.Theme.MessagesList.ForwardedIndicator+" ", dimStyle)
-	ml.drawSnapshotContent(builder, message, message.MessageSnapshots[0].Message, baseStyle)
+	ml.drawSnapshotContent(builder, message, message.MessageSnapshots[0].Message, baseStyle, hideSpoilers)
 	builder.Write(" ("+ml.formatTimestamp(message.MessageSnapshots[0].Message.Timestamp)+") ", dimStyle)
 }
 
-func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
 	dimStyle := baseStyle.Dim(true)
 	// indicator
 	builder.Write(ml.cfg.Theme.MessagesList.ReplyIndicator+" ", dimStyle)
@@ -1389,17 +1391,17 @@ func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message dis
 	if m := message.ReferencedMessage; m != nil {
 		m.GuildID = message.GuildID
 		ml.drawAuthor(builder, *m, dimStyle)
-		ml.drawContent(builder, *m, dimStyle)
+		ml.drawContent(builder, *m, dimStyle, hideSpoilers)
 	} else {
 		builder.Write("Original message was deleted", dimStyle)
 	}
 
 	builder.NewLine()
 	// main
-	ml.drawDefaultMessage(builder, message, baseStyle)
+	ml.drawDefaultMessage(builder, message, baseStyle, hideSpoilers)
 }
 
-func (ml *messagesList) drawPinnedMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style) {
+func (ml *messagesList) drawPinnedMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
 	builder.Write(message.Author.DisplayOrUsername(), baseStyle)
 	builder.Write(" pinned a message.", baseStyle)
 }
@@ -2015,7 +2017,7 @@ func (ml *messagesList) confirmPin() {
 		}
 	}
 
-	ml.chatView.showPinConfirmDialog(ml.renderMessage(*message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style), onChoice)
+	ml.chatView.showPinConfirmDialog(ml.renderMessage(*message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false), onChoice)
 }
 
 func (ml *messagesList) pin() {
