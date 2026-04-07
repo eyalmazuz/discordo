@@ -250,7 +250,7 @@ type qrCodeMsg struct {
 func (m *Model) generateQRCode(fingerprint string) tview.Cmd {
 	return func() tview.Msg {
 		content := "https://discord.com/ra/" + fingerprint
-		qrCode, err := qrcode.New(content, qrcode.Low)
+		qrCode, err := qrCodeNew(content, qrcode.Low)
 		if err != nil {
 			return newErrMsg(err)
 		}

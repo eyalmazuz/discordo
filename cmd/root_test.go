@@ -37,6 +37,34 @@ func (s *testScreen) EnableFocus() {
 	s.focusEnabled = true
 }
 
+func (s *testScreen) HideCursor() {}
+func (s *testScreen) ShowCursor(int, int) {}
+func (s *testScreen) SetCursor(int, int) {}
+func (s *testScreen) Draw() {}
+func (s *testScreen) Show() {}
+func (s *testScreen) Clear() {}
+func (s *testScreen) Fini() {}
+func (s *testScreen) SetStyle(tcell.Style) {}
+func (s *testScreen) SetContent(int, int, rune, []rune, tcell.Style) {}
+func (s *testScreen) GetContent(int, int) (rune, []rune, tcell.Style, int) { return 0, nil, tcell.StyleDefault, 0 }
+func (s *testScreen) Size() (int, int) { return 80, 24 }
+func (s *testScreen) CharacterSet() string { return "UTF-8" }
+func (s *testScreen) CanDisplay(rune, bool) bool { return true }
+func (s *testScreen) HasMouse() bool { return true }
+func (s *testScreen) HasKey(tcell.Key) bool { return true }
+func (s *testScreen) Colors() int { return 256 }
+func (s *testScreen) SetSize(int, int) {}
+func (s *testScreen) PollEvent() tcell.Event { return nil }
+func (s *testScreen) PostEvent(tcell.Event) error { return nil }
+func (s *testScreen) PostEventWait(tcell.Event) {}
+func (s *testScreen) Sync() {}
+func (s *testScreen) SetSizeRequested(int, int) {}
+func (s *testScreen) GetSizeRequested() (int, int) { return 80, 24 }
+func (s *testScreen) Tty() (tcell.Tty, bool) { return nil, false }
+func (s *testScreen) SetClipboard([]byte) {}
+func (s *testScreen) GetClipboard() {}
+func (s *testScreen) LockRegion(int, int, int, int, bool) {}
+
 func TestParseFlags(t *testing.T) {
 	if err := parseFlags([]string{"-config-path", "/tmp/cfg", "-log-path", "/tmp/log", "-log-level", "warn"}); err != nil {
 		t.Fatalf("parseFlags() error = %v", err)

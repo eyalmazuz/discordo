@@ -55,7 +55,7 @@ func TestDefaultKeybindFactories(t *testing.T) {
 	}
 
 	guilds := defaultGuildsTreeKeybinds()
-	if guilds.ToggleExpand.Help().Key != " " || guilds.CollapseParentNode.Help().Key != "-" {
+	if guilds.ToggleExpand.Help().Key != "space" || guilds.CollapseParentNode.Help().Key != "-" {
 		t.Fatalf("unexpected guild defaults: %+v", guilds)
 	}
 
