@@ -17,7 +17,9 @@ import (
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/consts"
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
+
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/state"
@@ -495,6 +497,11 @@ func (ul userList) Len() int {
 }
 
 func (el emojiList) String(i int) string {
+	if el[i].ID == 0 {
+		if s := markdown.GetShortcode(el[i].Name); s != "" {
+			return s
+		}
+	}
 	return el[i].Name
 }
 
@@ -635,6 +642,17 @@ func (mi *messageInput) addMentionUser(user *discord.User) {
 
 func (mi *messageInput) addEmojiSuggestion(emoji discord.Emoji) bool {
 	displayText := ":" + emoji.Name + ":"
+	previewURL := emoji.EmojiURL()
+	if emoji.ID == 0 {
+		s := markdown.GetShortcode(emoji.Name)
+		if s != "" {
+			displayText = ":" + s + ":"
+		} else {
+			displayText = emoji.Name
+		}
+		previewURL = markdown.TwemojiURL(emoji.Name)
+	}
+
 	if emoji.Animated {
 		displayText += " [animated]"
 	}
@@ -643,12 +661,15 @@ func (mi *messageInput) addEmojiSuggestion(emoji discord.Emoji) bool {
 		insertText:  emojiAutocompleteText(emoji),
 		displayText: displayText,
 		style:       tcell.StyleDefault,
-		previewURL:  emoji.EmojiURL(),
+		previewURL:  previewURL,
 	})
 	return mi.mentionsList.itemCount() >= int(mi.cfg.AutocompleteLimit)
 }
 
 func emojiAutocompleteText(emoji discord.Emoji) string {
+	if emoji.ID == 0 {
+		return emoji.Name
+	}
 	if emoji.Animated {
 		return "<a:" + emoji.Name + ":" + emoji.ID.String() + ">"
 	}

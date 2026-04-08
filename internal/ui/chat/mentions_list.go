@@ -89,10 +89,11 @@ func (m *mentionsList) rebuild() {
 		}
 
 		return &mentionsListRowItem{
-			Box:     tview.NewBox(),
-			item:    item,
-			style:   style,
-			preview: m.previewItemFor(index, item),
+			Box:      tview.NewBox(),
+			item:     item,
+			style:    style,
+			preview:  m.previewItemFor(index, item),
+			useKitty: m.useKitty,
 		}
 	})
 
@@ -191,7 +192,7 @@ func (m *mentionsList) updateCellDimensions(screen tcell.Screen) {
 }
 
 func (m *mentionsList) previewItemFor(index int, item mentionsListItem) *imageItem {
-	if !m.cfg.InlineImages.Enabled || !m.useKitty {
+	if !m.cfg.InlineImages.Enabled {
 		return nil
 	}
 	if item.previewURL == "" {
@@ -205,6 +206,9 @@ func (m *mentionsList) previewItemFor(index int, item mentionsListItem) *imageIt
 	m.nextKittyID++
 	imgItem := newImageItem(m.imageCache, item.previewURL, inlineEmoteWidth, 1, m.useKitty, kittyID, nil, nil)
 	imgItem.lockKittyRegion = false
+	if m.cellW > 0 {
+		imgItem.setCellDimensions(m.cellW, m.cellH)
+	}
 	m.emoteItemByKey[key] = imgItem
 	m.imageCache.Request(item.previewURL, 0, 0, func() {
 		if m.chatView != nil && m.chatView.app != nil {
@@ -216,9 +220,10 @@ func (m *mentionsList) previewItemFor(index int, item mentionsListItem) *imageIt
 
 type mentionsListRowItem struct {
 	*tview.Box
-	item    mentionsListItem
-	style   tcell.Style
-	preview *imageItem
+	item     mentionsListItem
+	style    tcell.Style
+	preview  *imageItem
+	useKitty bool
 }
 
 func (i *mentionsListRowItem) Height(width int) int {
@@ -240,8 +245,10 @@ func (i *mentionsListRowItem) Draw(screen tcell.Screen) {
 		i.preview.drawnThisFrame = true
 		i.preview.SetRect(x, y, inlineEmoteWidth, 1)
 		i.preview.Draw(screen)
-		for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
-			screen.SetContent(x+offset, y, ' ', nil, i.style)
+		if i.useKitty {
+			for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
+				screen.SetContent(x+offset, y, ' ', nil, i.style)
+			}
 		}
 		textX += inlineEmoteWidth + 1
 	}

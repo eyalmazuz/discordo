@@ -45,11 +45,11 @@ func TestMessageInputTabSuggestAndCompleteEmoji(t *testing.T) {
 	channel := &discord.Channel{ID: 12, GuildID: 13, Type: discord.GuildText}
 	m.SetSelectedChannel(channel)
 	m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{
-		{ID: 1, Name: "kekw"},
-		{ID: 2, Name: "kekwait", Animated: true},
+		{ID: 1, Name: "mycustomemoji"},
+		{ID: 2, Name: "mycustomemojianim", Animated: true},
 	}, false)
 
-	mi.SetText(":kek", true)
+	mi.SetText(":mycustom", true)
 	mi.tabSuggest()
 	if mi.mentionsList.itemCount() != 2 {
 		t.Fatalf("expected emoji autocomplete suggestions, got %d", mi.mentionsList.itemCount())
@@ -57,7 +57,7 @@ func TestMessageInputTabSuggestAndCompleteEmoji(t *testing.T) {
 
 	mi.mentionsList.SetCursor(1)
 	mi.tabComplete()
-	if got := mi.GetText(); got != "<a:kekwait:2> " {
+	if got := mi.GetText(); got != "<a:mycustomemojianim:2> " {
 		t.Fatalf("expected emoji completion to insert animated emoji syntax, got %q", got)
 	}
 	if mi.mentionsList.itemCount() != 0 {

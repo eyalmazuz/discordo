@@ -3,6 +3,7 @@ package chat
 import (
 	"log/slog"
 
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/ningen/v3"
 )
@@ -43,21 +44,19 @@ func availableEmojisForChannel(state *ningen.State, c *discord.Channel) []discor
 	appendGuildEmojis(c.GuildID, true)
 
 	me, err := state.Cabinet.Me()
-	if err != nil || me.Nitro == discord.NoUserNitro {
-		return emojis
-	}
-
-	guilds, err := state.Cabinet.Guilds()
-	if err != nil {
-		return emojis
-	}
-
-	for _, guild := range guilds {
-		if guild.ID == c.GuildID {
-			continue
+	if err == nil && me.Nitro != discord.NoUserNitro {
+		guilds, err := state.Cabinet.Guilds()
+		if err == nil {
+			for _, guild := range guilds {
+				if guild.ID == c.GuildID {
+					continue
+				}
+				appendGuildEmojis(guild.ID, false)
+			}
 		}
-		appendGuildEmojis(guild.ID, false)
 	}
+
+	emojis = append(emojis, markdown.StandardEmojis...)
 
 	return emojis
 }

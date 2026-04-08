@@ -32,7 +32,7 @@ func TestRenderer_Emoji(t *testing.T) {
 			emoji: &discordmd.Emoji{
 				Name: "smile",
 			},
-			expected: ":smile:",
+			expected: "😄",
 			hasURL:   false,
 		},
 		{

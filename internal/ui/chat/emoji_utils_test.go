@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/diamondburned/arikawa/v3/discord"
 )
 
@@ -22,8 +23,11 @@ func TestAvailableEmojisForChannel(t *testing.T) {
 		m.state.Cabinet.MeStore.MyselfSet(discord.User{ID: 1, Username: "me", Nitro: discord.NoUserNitro}, true)
 
 		emojis := availableEmojisForChannel(m.state, channel)
-		if len(emojis) != 1 || emojis[0].Name != "guild" {
-			t.Fatalf("expected only current guild emojis, got %#v", emojis)
+		if len(emojis) == 0 || emojis[0].Name != "guild" {
+			t.Fatalf("expected current guild emojis, got %#v", emojis)
+		}
+		if len(emojis) != 1+len(markdown.StandardEmojis) {
+			t.Fatalf("expected standard emojis appended, got %d emojis", len(emojis))
 		}
 	})
 
@@ -58,11 +62,14 @@ func TestAvailableEmojisForChannel(t *testing.T) {
 		}
 
 		emojis := availableEmojisForChannel(m.state, channel)
-		if len(emojis) != 2 {
+		if len(emojis) == 0 {
 			t.Fatalf("expected deduplicated current+cross-guild emojis, got %#v", emojis)
 		}
 		if emojis[0].ID != 1 || emojis[1].ID != 2 {
 			t.Fatalf("expected current guild emoji then other guild emoji, got %#v", emojis)
+		}
+		if len(emojis) != 2+len(markdown.StandardEmojis) {
+			t.Fatalf("expected standard emojis appended, got %d", len(emojis))
 		}
 	})
 
@@ -73,8 +80,11 @@ func TestAvailableEmojisForChannel(t *testing.T) {
 		m.state.Cabinet.EmojiSet(channel.GuildID, []discord.Emoji{{ID: 1, Name: "guild"}}, false)
 
 		emojis := availableEmojisForChannel(m.state, channel)
-		if len(emojis) != 1 || emojis[0].ID != 1 {
+		if len(emojis) == 0 || emojis[0].ID != 1 {
 			t.Fatalf("expected current guild emojis to be preserved when guild list is unavailable, got %#v", emojis)
+		}
+		if len(emojis) != 1+len(markdown.StandardEmojis) {
+			t.Fatalf("expected standard emojis appended, got %d", len(emojis))
 		}
 	})
 
@@ -96,8 +106,8 @@ func TestAvailableEmojisForChannel(t *testing.T) {
 		}
 
 		emojis := availableEmojisForChannel(m.state, channel)
-		if len(emojis) != 0 {
-			t.Fatalf("expected fetch failure to return no emojis, got %#v", emojis)
+		if len(emojis) != len(markdown.StandardEmojis) {
+			t.Fatalf("expected fetch failure to return only standard emojis, got %d", len(emojis))
 		}
 	})
 }

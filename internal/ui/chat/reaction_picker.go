@@ -10,6 +10,7 @@ import (
 	"github.com/ayn2op/discordo/internal/config"
 	httpkg "github.com/ayn2op/discordo/internal/http"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
+	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/eyalmazuz/tview"
 	"github.com/eyalmazuz/tview/help"
@@ -67,9 +68,18 @@ func (rp *reactionPicker) SetItems(items []discord.Emoji) {
 func (rp *reactionPicker) rebuildPickerItems() {
 	var pItems picker.Items
 	for i, emoji := range rp.items {
+		text := emoji.Name
+		filterText := emoji.Name
+		if emoji.ID == 0 {
+			s := markdown.GetShortcode(emoji.Name)
+			if s != "" {
+				text = ":" + s + ":"
+				filterText += " " + s
+			}
+		}
 		pItems = append(pItems, picker.Item{
-			Text:       emoji.Name,
-			FilterText: emoji.Name,
+			Text:       text,
+			FilterText: filterText,
 			Reference:  i,
 		})
 	}
@@ -192,22 +202,26 @@ func (rp *reactionPicker) refreshPreviewBuilder() {
 			style = style.Reverse(true)
 		}
 		return &reactionPickerRowItem{
-			Box:     tview.NewBox(),
-			style:   style,
-			text:    emojiDisplayText(emoji),
-			preview: rp.previewItemFor(ref, emoji),
+			Box:      tview.NewBox(),
+			style:    style,
+			text:     emojiDisplayText(emoji),
+			preview:  rp.previewItemFor(ref, emoji),
+			useKitty: rp.useKitty,
 		}
-	})
-}
+		})
+		}
 
-func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageItem {
-	if !rp.cfg.InlineImages.Enabled || !rp.useKitty {
+		func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageItem {
+
+	if !rp.cfg.InlineImages.Enabled {
 		return nil
 	}
-	if emoji.ID == 0 {
-		return nil
+	var url string
+	if emoji.ID != 0 {
+		url = emoji.EmojiURL()
+	} else {
+		url = markdown.TwemojiURL(emoji.Name)
 	}
-	url := emoji.EmojiURL()
 	if url == "" {
 		return nil
 	}
@@ -219,6 +233,9 @@ func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageI
 	rp.nextKittyID++
 	item := newImageItem(rp.imageCache, url, inlineEmoteWidth, 1, rp.useKitty, kittyID, nil, nil)
 	item.lockKittyRegion = false
+	if rp.cellW > 0 {
+		item.setCellDimensions(rp.cellW, rp.cellH)
+	}
 	rp.emoteItemByKey[key] = item
 	rp.imageCache.Request(url, 0, 0, func() {
 		if rp.chatView != nil && rp.chatView.app != nil {
@@ -235,6 +252,10 @@ func emojiDisplayText(emoji discord.Emoji) string {
 			text += " [animated]"
 		}
 		return text
+	}
+	s := markdown.GetShortcode(emoji.Name)
+	if s != "" {
+		return ":" + s + ":"
 	}
 	return emoji.Name
 }
@@ -282,9 +303,10 @@ func pickerFilteredItems(model *picker.Model) picker.Items {
 
 type reactionPickerRowItem struct {
 	*tview.Box
-	style   tcell.Style
-	text    string
-	preview *imageItem
+	style    tcell.Style
+	text     string
+	preview  *imageItem
+	useKitty bool
 }
 
 func (i *reactionPickerRowItem) Height(width int) int { return 1 }
@@ -302,8 +324,10 @@ func (i *reactionPickerRowItem) Draw(screen tcell.Screen) {
 		i.preview.drawnThisFrame = true
 		i.preview.SetRect(x, y, inlineEmoteWidth, 1)
 		i.preview.Draw(screen)
-		for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
-			screen.SetContent(x+offset, y, ' ', nil, i.style)
+		if i.useKitty {
+			for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
+				screen.SetContent(x+offset, y, ' ', nil, i.style)
+			}
 		}
 		textX += inlineEmoteWidth + 1
 	}

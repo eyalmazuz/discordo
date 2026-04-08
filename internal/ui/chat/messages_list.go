@@ -286,7 +286,7 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 		for j := x; j < x+w; j++ {
 			_, style, _ := screen.Get(j, i)
 			_, url := style.GetUrl()
-			if !strings.HasPrefix(url, "https://cdn.discordapp.com/emojis/") {
+			if !strings.HasPrefix(url, "https://cdn.discordapp.com/emojis/") && !strings.Contains(url, "twemoji") {
 				continue
 			}
 
@@ -316,8 +316,12 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 			// Custom emoji placeholders always occupy a fixed 2-cell slot. Stepping
 			// by width instead of collapsing the full URL run preserves adjacent
 			// identical emoji as separate occurrences.
-			for offset := 1; offset < inlineEmoteWidth && j+offset < x+w; offset++ {
-				screen.SetContent(j+offset, i, ' ', nil, tcell.StyleDefault)
+			if ml.useKitty {
+				// Continuation cell for wide characters might not need manual clearing
+				// if LockRegion covers it, but we do it for safety.
+				for offset := 1; offset < inlineEmoteWidth && j+offset < x+w; offset++ {
+					screen.SetContent(j+offset, i, ' ', nil, tcell.StyleDefault)
+				}
 			}
 			j += inlineEmoteWidth - 1
 		}
@@ -1102,21 +1106,29 @@ func (ml *messagesList) drawReactions(builder *tview.LineBuilder, message discor
 
 		reactionStyle := baseStyle.Bold(r.Me)
 		emojiStyle := ui.MergeStyle(reactionStyle, ml.cfg.Theme.MessagesList.EmojiStyle.Style)
+
+		var url string
 		if r.Emoji.ID != 0 {
+			url = r.Emoji.EmojiURL()
+		} else {
+			url = markdown.TwemojiURL(r.Emoji.Name)
+		}
+
+		if url != "" && ml.cfg.InlineImages.Enabled {
 			if ml.imageCache != nil {
-				ml.imageCache.Request(r.Emoji.EmojiURL(), 0, 0, func() {
+				ml.imageCache.Request(url, 0, 0, func() {
 					if ml.chatView != nil && ml.chatView.app != nil {
 						triggerRedraw(ml.chatView.app)
 					}
 				})
 			}
-			builder.Write(markdown.CustomEmojiText(r.Emoji.Name, ml.cfg.InlineImages.Enabled), emojiStyle.Url(r.Emoji.EmojiURL()))
+			builder.Write(markdown.CustomEmojiText(r.Emoji.Name, true), emojiStyle.Url(url))
 		} else {
 			builder.Write(r.Emoji.Name, emojiStyle)
 		}
 
-		builder.Write(" ", reactionStyle)
-		builder.Write(strconv.Itoa(r.Count), reactionStyle)
+		builder.Write(" ", reactionStyle.Url(""))
+		builder.Write(strconv.Itoa(r.Count), reactionStyle.Url(""))
 	}
 }
 

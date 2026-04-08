@@ -83,7 +83,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 		case *ast.Text:
 			if entering {
-				r.writeObscured(builder, string(node.Segment.Value(source)), currentStyle())
+				r.renderTextWithEmojis(builder, string(node.Segment.Value(source)), currentStyle())
 				switch {
 				case node.HardLineBreak():
 					builder.NewLine()
@@ -164,7 +164,12 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 					r.writeObscured(builder, CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
 					break
 				}
-				r.writeObscured(builder, ":"+node.Name+":", style)
+				if r.cfg.InlineImages.Enabled {
+					style = style.Url(TwemojiURL(node.Name))
+					r.writeObscured(builder, CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
+				} else {
+					r.writeObscured(builder, StandardEmoji(node.Name), style)
+				}
 			}
 		}
 		return ast.WalkContinue, nil
@@ -317,4 +322,37 @@ func applyInlineAttr(style tcell.Style, attr discordmd.Attribute, inLink bool) t
 		return style.Reverse(true)
 	}
 	return style
+}
+
+func (r *Renderer) renderTextWithEmojis(builder *tview.LineBuilder, text string, style tcell.Style) {
+	if !r.cfg.InlineImages.Enabled {
+		r.writeObscured(builder, text, style)
+		return
+	}
+
+	runes := []rune(text)
+	for i := 0; i < len(runes); {
+		found := false
+		// Try to match the longest emoji first (e.g. skin tones, ZWJ sequences)
+		// Standard emojis in emoji.json are mostly 1-2 runes, but some are more.
+		// Flag emojis are 2 runes.
+		for l := 12; l > 0; l-- {
+			if i+l > len(runes) {
+				continue
+			}
+			part := string(runes[i : i+l])
+			if _, ok := emojiToShortcode[normalizeEmoji(part)]; ok {
+				// Found an emoji!
+				r.writeObscured(builder, CustomEmojiText(part, true), style.Url(TwemojiURL(part)))
+				i += l
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			r.writeObscured(builder, string(runes[i]), style)
+			i++
+		}
+	}
 }
