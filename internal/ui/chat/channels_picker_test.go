@@ -87,7 +87,7 @@ func TestNewChannelsPicker(t *testing.T) {
 	m := newMockChatModel()
 	cp := newChannelsPicker(m.cfg, m)
 
-	if cp.chatView != m {
+	if cp.chat != m {
 		t.Fatalf("expected chat view to be retained")
 	}
 	if cp.Title() != "Channels" {

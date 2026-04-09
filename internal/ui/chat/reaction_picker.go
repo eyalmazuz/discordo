@@ -23,7 +23,7 @@ import (
 type reactionPicker struct {
 	*picker.Model
 	cfg          *config.Config
-	chatView     *Model
+	chat     *Model
 	messagesList *messagesList
 
 	items []discord.Emoji
@@ -40,11 +40,11 @@ type reactionPicker struct {
 
 var _ help.KeyMap = (*reactionPicker)(nil)
 
-func newReactionPicker(cfg *config.Config, chatView *Model, messagesList *messagesList) *reactionPicker {
+func newReactionPicker(cfg *config.Config, chat *Model, messagesList *messagesList) *reactionPicker {
 	rp := &reactionPicker{
 		Model:          picker.NewModel(),
 		cfg:            cfg,
-		chatView:       chatView,
+		chat:       chat,
 		messagesList:   messagesList,
 		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
 		emoteItemByKey: make(map[string]*imageItem),
@@ -120,7 +120,7 @@ func (rp *reactionPicker) onSelected(item picker.Item) tview.Cmd {
 	closeCmd := rp.close()
 
 	reactCmd := func() tview.Msg {
-		if err := rp.chatView.state.React(channelID, messageID, apiString); err != nil {
+		if err := rp.chat.state.React(channelID, messageID, apiString); err != nil {
 			slog.Error("failed to react to message", "channel_id", channelID, "message_id", messageID, "emoji", emojiName, "err", err)
 		}
 		return nil
@@ -135,7 +135,7 @@ func (rp *reactionPicker) close() tview.Cmd {
 		}
 	}
 	clear(rp.emoteItemByKey)
-	rp.chatView.RemoveLayer(reactionPickerLayerName)
+	rp.chat.RemoveLayer(reactionPickerLayerName)
 	if rp.messagesList != nil {
 		rp.messagesList.kittyNeedsFullClear = true
 	}
@@ -238,8 +238,8 @@ func (rp *reactionPicker) refreshPreviewBuilder() {
 	}
 	rp.emoteItemByKey[key] = item
 	rp.imageCache.Request(url, 0, 0, func() {
-		if rp.chatView != nil && rp.chatView.app != nil {
-			triggerRedraw(rp.chatView.app)
+		if rp.chat != nil && rp.chat.app != nil {
+			triggerRedraw(rp.chat.app)
 		}
 	})
 	return item

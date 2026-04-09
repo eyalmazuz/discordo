@@ -25,7 +25,7 @@ type messageSearchResult struct {
 type messageSearchPopup struct {
 	*flex.Model
 	cfg          *config.Config
-	chatView     *Model
+	chat     *Model
 	messagesList *messagesList
 	input        *tview.InputField
 	list         *list.Model
@@ -45,11 +45,11 @@ type messageSearchPopup struct {
 
 var _ help.KeyMap = (*messageSearchPopup)(nil)
 
-func newMessageSearchPopup(cfg *config.Config, chatView *Model, messagesList *messagesList) *messageSearchPopup {
+func newMessageSearchPopup(cfg *config.Config, chat *Model, messagesList *messagesList) *messageSearchPopup {
 	sp := &messageSearchPopup{
 		Model:        flex.NewModel(),
 		cfg:          cfg,
-		chatView:     chatView,
+		chat:     chat,
 		messagesList: messagesList,
 		input:        tview.NewInputField(),
 		list:         list.NewModel(),
@@ -98,14 +98,14 @@ func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tvi
 	sp.results = nil
 	sp.lastSubmitted = ""
 	sp.input.SetText("")
-	sp.SetTitle("Search in " + ui.ChannelToString(channel, sp.cfg.Icons, sp.chatView.state))
+	sp.SetTitle("Search in " + ui.ChannelToString(channel, sp.cfg.Icons, sp.chat.state))
 	sp.SetFooter("Enter search  Tab focus")
 	sp.resetPrompt()
 }
 
 func (sp *messageSearchPopup) FocusInput() {
-	if sp.chatView != nil && sp.chatView.app != nil {
-		sendFocus(sp.chatView.app, sp.input)
+	if sp.chat != nil && sp.chat.app != nil {
+		sendFocus(sp.chat.app, sp.input)
 	}
 }
 
@@ -130,9 +130,9 @@ func (sp *messageSearchPopup) Update(msg tview.Msg) tview.Cmd {
 		switch {
 		case keybind.Matches(msg, keys.ToggleFocus.Keybind):
 			if sp.input.HasFocus() {
-				sendFocus(sp.chatView.app, sp.list)
+				sendFocus(sp.chat.app, sp.list)
 			} else {
-				sendFocus(sp.chatView.app, sp.input)
+				sendFocus(sp.chat.app, sp.input)
 			}
 			return nil
 		case keybind.Matches(msg, keys.Up.Keybind):
@@ -242,9 +242,9 @@ func (sp *messageSearchPopup) fetchSearchResults(channel discord.Channel, query 
 			err  error
 		)
 		if channel.GuildID.IsValid() {
-			resp, err = sp.chatView.state.Search(channel.GuildID, data)
+			resp, err = sp.chat.state.Search(channel.GuildID, data)
 		} else {
-			resp, err = sp.chatView.state.SearchDirectMessages(data)
+			resp, err = sp.chat.state.SearchDirectMessages(data)
 		}
 		if err != nil {
 			return nil, err
@@ -319,11 +319,11 @@ func (sp *messageSearchPopup) selectCurrent() {
 
 func (sp *messageSearchPopup) close(nextFocus tview.Model) {
 	sp.activeSearchToken.Add(1)
-	if sp.chatView != nil && sp.chatView.HasLayer(messageSearchLayerName) {
-		sp.chatView.RemoveLayer(messageSearchLayerName)
+	if sp.chat != nil && sp.chat.HasLayer(messageSearchLayerName) {
+		sp.chat.RemoveLayer(messageSearchLayerName)
 	}
-	if sp.chatView != nil && sp.chatView.app != nil && nextFocus != nil {
-		sendFocus(sp.chatView.app, nextFocus)
+	if sp.chat != nil && sp.chat.app != nil && nextFocus != nil {
+		sendFocus(sp.chat.app, nextFocus)
 	}
 	sp.previousFocus = nil
 }
@@ -333,11 +333,11 @@ func (sp *messageSearchPopup) enqueueUpdateDraw(f func()) {
 		sp.queueUpdateDraw(f)
 		return
 	}
-	if sp.chatView == nil || sp.chatView.app == nil {
+	if sp.chat == nil || sp.chat.app == nil {
 		return
 	}
 	f()
-	triggerRedraw(sp.chatView.app)
+	triggerRedraw(sp.chat.app)
 }
 
 func (sp *messageSearchPopup) onInputChanged(text string) {

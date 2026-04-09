@@ -23,7 +23,7 @@ const (
 type pinnedMessagesPopup struct {
 	*list.Model
 	cfg          *config.Config
-	chatView     *Model
+	chat     *Model
 	messagesList *messagesList
 
 	channel       discord.Channel
@@ -40,11 +40,11 @@ type pinnedMessagesPopup struct {
 
 var _ help.KeyMap = (*pinnedMessagesPopup)(nil)
 
-func newPinnedMessagesPopup(cfg *config.Config, chatView *Model, messagesList *messagesList) *pinnedMessagesPopup {
+func newPinnedMessagesPopup(cfg *config.Config, chat *Model, messagesList *messagesList) *pinnedMessagesPopup {
 	pp := &pinnedMessagesPopup{
 		Model:        list.NewModel(),
 		cfg:          cfg,
-		chatView:     chatView,
+		chat:     chat,
 		messagesList: messagesList,
 		statusStyle:  tcell.StyleDefault.Dim(true),
 	}
@@ -72,13 +72,13 @@ func newPinnedMessagesPopup(cfg *config.Config, chatView *Model, messagesList *m
 func (pp *pinnedMessagesPopup) Prepare(channel discord.Channel, previousFocus tview.Model) {
 	pp.channel = channel
 	pp.previousFocus = previousFocus
-	pp.SetTitle("Pins in " + ui.ChannelToString(channel, pp.cfg.Icons, pp.chatView.state))
+	pp.SetTitle("Pins in " + ui.ChannelToString(channel, pp.cfg.Icons, pp.chat.state))
 	pp.refresh()
 }
 
 func (pp *pinnedMessagesPopup) FocusList() {
-	if pp.chatView != nil && pp.chatView.app != nil {
-		sendFocus(pp.chatView.app, pp)
+	if pp.chat != nil && pp.chat.app != nil {
+		sendFocus(pp.chat.app, pp)
 	}
 }
 
@@ -184,7 +184,7 @@ func (pp *pinnedMessagesPopup) fetchPins(channel discord.Channel) ([]discord.Mes
 	if pp.fetchPinnedMessages != nil {
 		return pp.fetchPinnedMessages(channel)
 	}
-	return pp.chatView.state.State.PinnedMessages(channel.ID)
+	return pp.chat.state.State.PinnedMessages(channel.ID)
 }
 
 func (pp *pinnedMessagesPopup) setPins(pins []discord.Message) {
@@ -297,7 +297,7 @@ func (pp *pinnedMessagesPopup) confirmUnpin() {
 		return
 	}
 
-	pp.chatView.showMessageConfirmDialog(
+	pp.chat.showMessageConfirmDialog(
 		unpinConfirmPrompt,
 		unpinConfirmHelper,
 		pp.messagesList.renderMessage(*message, pp.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false),
@@ -322,7 +322,7 @@ func (pp *pinnedMessagesPopup) unpinCurrent() {
 	unpin := pp.unpinMessage
 	if unpin == nil {
 		unpin = func(channel discord.Channel, messageID discord.MessageID) error {
-			return unpinMessageFunc(pp.chatView.state.State, channel.ID, messageID, "")
+			return unpinMessageFunc(pp.chat.state.State, channel.ID, messageID, "")
 		}
 	}
 	if err := unpin(pp.channel, message.ID); err != nil {
@@ -348,11 +348,11 @@ func (pp *pinnedMessagesPopup) unpinCurrent() {
 }
 
 func (pp *pinnedMessagesPopup) close(nextFocus tview.Model) {
-	if pp.chatView != nil && pp.chatView.HasLayer(pinnedMessagesLayerName) {
-		pp.chatView.RemoveLayer(pinnedMessagesLayerName)
+	if pp.chat != nil && pp.chat.HasLayer(pinnedMessagesLayerName) {
+		pp.chat.RemoveLayer(pinnedMessagesLayerName)
 	}
-	if pp.chatView != nil && pp.chatView.app != nil && nextFocus != nil {
-		sendFocus(pp.chatView.app, nextFocus)
+	if pp.chat != nil && pp.chat.app != nil && nextFocus != nil {
+		sendFocus(pp.chat.app, nextFocus)
 	}
 	pp.previousFocus = nil
 }

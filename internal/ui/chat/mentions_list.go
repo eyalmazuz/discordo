@@ -23,7 +23,7 @@ type mentionsListItem struct {
 type mentionsList struct {
 	*list.Model
 	cfg            *config.Config
-	chatView       *Model
+	chat       *Model
 	items          []mentionsListItem
 	emoteItemByKey map[string]*imageItem
 	imageCache     *imgpkg.Cache
@@ -34,11 +34,11 @@ type mentionsList struct {
 	pendingDeletes []uint32
 }
 
-func newMentionsList(cfg *config.Config, chatView *Model) *mentionsList {
+func newMentionsList(cfg *config.Config, chat *Model) *mentionsList {
 	m := &mentionsList{
 		Model:          list.NewModel(),
 		cfg:            cfg,
-		chatView:       chatView,
+		chat:       chat,
 		emoteItemByKey: make(map[string]*imageItem),
 		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
 		nextKittyID:    100000,
@@ -211,8 +211,8 @@ func (m *mentionsList) previewItemFor(index int, item mentionsListItem) *imageIt
 	}
 	m.emoteItemByKey[key] = imgItem
 	m.imageCache.Request(item.previewURL, 0, 0, func() {
-		if m.chatView != nil && m.chatView.app != nil {
-			triggerRedraw(m.chatView.app)
+		if m.chat != nil && m.chat.app != nil {
+			triggerRedraw(m.chat.app)
 		}
 	})
 	return imgItem

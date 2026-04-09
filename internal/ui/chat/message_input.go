@@ -68,7 +68,7 @@ func newMessageInput(cfg *config.Config, chat *Model) *messageInput {
 		chat:            chat,
 		sendMessageData: &api.SendMessageData{},
 		cache:           cache.NewCache(),
-		mentionsList:    newMentionsList(cfg, chatView),
+		mentionsList:    newMentionsList(cfg, chat),
 	}
 	mi.Box = ui.ConfigureBox(mi.Box, &cfg.Theme)
 	mi.

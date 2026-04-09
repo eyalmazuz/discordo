@@ -584,14 +584,14 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 	t.Run("reply key focuses composer", func(t *testing.T) {
 		m := newTestModelWithTransport(&mockTransport{})
 		ml := m.messagesList
-		ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
+		ml.chat.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
 		ml.Update(tcell.NewEventKey(tcell.KeyRune, "R", tcell.ModNone))
-		if ml.chatView.messageInput.sendMessageData.Reference == nil || ml.chatView.messageInput.sendMessageData.Reference.MessageID != 10 {
+		if ml.chat.messageInput.sendMessageData.Reference == nil || ml.chat.messageInput.sendMessageData.Reference.MessageID != 10 {
 			t.Fatal("expected reply to set message reference")
 		}
-		if ml.chatView.messageInput.Title() == "" {
+		if ml.chat.messageInput.Title() == "" {
 			t.Fatal("expected reply to set composer title")
 		}
 	})
@@ -600,11 +600,11 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		t.Run("foreign message", func(t *testing.T) {
 			m := newTestModelWithTransport(&mockTransport{})
 			ml := m.messagesList
-			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
+			ml.chat.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
 			ml.SetCursor(0)
 			ml.Update(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
-			if ml.chatView.messageInput.edit {
+			if ml.chat.messageInput.edit {
 				t.Fatal("expected foreign message not to enter edit mode")
 			}
 		})
@@ -612,11 +612,11 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		t.Run("own message", func(t *testing.T) {
 			m := newTestModelWithTransport(&mockTransport{})
 			ml := m.messagesList
-			ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
+			ml.chat.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 			ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 			ml.SetCursor(0)
 			ml.Update(tcell.NewEventKey(tcell.KeyRune, "e", tcell.ModNone))
-			if !ml.chatView.messageInput.edit {
+			if !ml.chat.messageInput.edit {
 				t.Fatal("expected own message to enter edit mode")
 			}
 		})
@@ -625,7 +625,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 	t.Run("delete confirm opens modal", func(t *testing.T) {
 		m := newTestModelWithTransport(&mockTransport{})
 		ml := m.messagesList
-		ml.chatView.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
+		ml.chat.SetSelectedChannel(&discord.Channel{ID: 99, Type: discord.DirectMessage})
 		ml.setMessages([]discord.Message{{ID: 11, ChannelID: 99, Content: "mine", Author: discord.User{ID: 1, Username: "me"}}})
 		ml.SetCursor(1)
 		ml.SetCursor(0)
@@ -647,10 +647,10 @@ func TestMessagesListDeleteReplyAndHelpers(t *testing.T) {
 		ml.setMessages([]discord.Message{{ID: 21, ChannelID: channel.ID, Author: discord.User{ID: 2, Username: "other"}}})
 		ml.SetCursor(0)
 		ml.reply(true)
-		if ml.chatView.messageInput.sendMessageData.AllowedMentions == nil || ml.chatView.messageInput.sendMessageData.AllowedMentions.RepliedUser == nil {
+		if ml.chat.messageInput.sendMessageData.AllowedMentions == nil || ml.chat.messageInput.sendMessageData.AllowedMentions.RepliedUser == nil {
 			t.Fatal("expected allowed mentions to be configured for reply")
 		}
-		if !*ml.chatView.messageInput.sendMessageData.AllowedMentions.RepliedUser {
+		if !*ml.chat.messageInput.sendMessageData.AllowedMentions.RepliedUser {
 			t.Fatal("expected reply mention to ping the replied user")
 		}
 	})
@@ -668,10 +668,10 @@ func TestMessagesListDeleteReplyAndHelpers(t *testing.T) {
 		ml.SetCursor(0)
 		ml.reply(false)
 
-		if got := ml.chatView.messageInput.Title(); !strings.Contains(got, "nickname") {
+		if got := ml.chat.messageInput.Title(); !strings.Contains(got, "nickname") {
 			t.Fatalf("expected reply title to prefer member nick, got %q", got)
 		}
-		if ml.chatView.messageInput.sendMessageData.AllowedMentions == nil || *ml.chatView.messageInput.sendMessageData.AllowedMentions.RepliedUser {
+		if ml.chat.messageInput.sendMessageData.AllowedMentions == nil || *ml.chat.messageInput.sendMessageData.AllowedMentions.RepliedUser {
 			t.Fatal("expected non-mention reply to keep replied-user ping disabled")
 		}
 	})
@@ -804,11 +804,11 @@ func TestMessagesListWaitForChunkAndShowAttachments(t *testing.T) {
 func TestMessagesListDeleteAllowedMentionsReset(t *testing.T) {
 	m := newTestModel()
 	ml := m.messagesList
-	ml.chatView.messageInput.sendMessageData = &api.SendMessageData{}
+	ml.chat.messageInput.sendMessageData = &api.SendMessageData{}
 	ml.setMessages([]discord.Message{{ID: 40, Author: discord.User{ID: 2, Username: "other"}}})
 	ml.SetCursor(0)
 	ml.reply(false)
-	if ml.chatView.messageInput.sendMessageData.AllowedMentions == nil {
+	if ml.chat.messageInput.sendMessageData.AllowedMentions == nil {
 		t.Fatal("expected reply to install allowed mentions")
 	}
 }
