@@ -38,7 +38,8 @@ import (
 
 const tmpFilePattern = consts.Name + "_*.md"
 
-var mentionRegex = regexp.MustCompile("@[a-zA-Z0-9._]+")
+var mentionRegex = regexp.MustCompile(`@[a-zA-Z0-9._]+`)
+var emojiRegex = regexp.MustCompile(`:([a-zA-Z0-9_]+):`)
 
 type messageInput struct {
 	*tview.TextArea
@@ -240,14 +241,24 @@ func (mi *messageInput) send() {
 }
 
 func (mi *messageInput) processText(channel *discord.Channel, src []byte) string {
-	// Fast path: no mentions to expand.
-	if bytes.IndexByte(src, '@') == -1 {
+	hasMention := bytes.IndexByte(src, '@') != -1
+	hasEmoji := emojiRegex.Match(src)
+
+	// Fast path: nothing to expand.
+	if !hasMention && !hasEmoji {
 		return string(src)
 	}
 
-	// Fast path: no back ticks (code blocks), so expand mentions directly.
+	// Fast path: no back ticks (code blocks), so expand directly.
 	if bytes.IndexByte(src, '`') == -1 {
-		return string(mi.expandMentions(channel, src))
+		res := src
+		if hasMention {
+			res = mi.expandMentions(channel, res)
+		}
+		if hasEmoji {
+			res = mi.expandEmojis(channel, res)
+		}
+		return string(res)
 	}
 
 	var (
@@ -274,7 +285,14 @@ func (mi *messageInput) processText(channel *discord.Channel, src []byte) string
 
 	for i := len(ranges) - 1; i >= 0; i-- {
 		rng := ranges[i]
-		src = slices.Replace(src, rng[0], rng[1], mi.expandMentions(channel, src[rng[0]:rng[1]])...)
+		segment := src[rng[0]:rng[1]]
+		if hasMention {
+			segment = mi.expandMentions(channel, segment)
+		}
+		if hasEmoji {
+			segment = mi.expandEmojis(channel, segment)
+		}
+		src = slices.Replace(src, rng[0], rng[1], segment...)
 	}
 
 	return string(src)
@@ -308,6 +326,26 @@ func (mi *messageInput) expandMentions(c *discord.Channel, src []byte) []byte {
 			return false
 		})
 		return output
+	})
+}
+
+func (mi *messageInput) expandEmojis(c *discord.Channel, src []byte) []byte {
+	return emojiRegex.ReplaceAllFunc(src, func(match []byte) []byte {
+		name := string(match[1 : len(match)-1])
+		emojis := availableEmojisForChannel(mi.chat.state, c)
+		for _, emoji := range emojis {
+			if strings.EqualFold(emoji.Name, name) {
+				if emoji.ID != 0 {
+					if emoji.Animated {
+						return []byte("<a:" + emoji.Name + ":" + emoji.ID.String() + ">")
+					}
+					return []byte("<:" + emoji.Name + ":" + emoji.ID.String() + ">")
+				}
+				// Standard emojis that don't need converting
+				return match
+			}
+		}
+		return match
 	})
 }
 
@@ -670,10 +708,7 @@ func emojiAutocompleteText(emoji discord.Emoji) string {
 	if emoji.ID == 0 {
 		return emoji.Name
 	}
-	if emoji.Animated {
-		return "<a:" + emoji.Name + ":" + emoji.ID.String() + ">"
-	}
-	return "<:" + emoji.Name + ":" + emoji.ID.String() + ">"
+	return ":" + emoji.Name + ":"
 }
 
 func (mi *messageInput) suggestEmojis(selected *discord.Channel, name string) tview.Cmd {

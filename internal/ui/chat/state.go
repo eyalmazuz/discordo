@@ -41,6 +41,16 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 		GetRoot().
 		ClearChildren().
 		AddChild(dmNode)
+
+	// Initialize DM alerts from ReadStates
+	for _, ch := range event.PrivateChannels {
+		for _, rs := range event.ReadStates {
+			if rs.ChannelID == ch.ID && rs.MentionCount > 0 {
+				m.guildsTree.setDMAlertCount(ch.ID, rs.MentionCount)
+				break
+			}
+		}
+	}
 	m.guildsTree.rebuildDMAlertSection()
 
 	// Track guilds already in folders to find orphans.
@@ -110,10 +120,13 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 		if me == nil || message.Author.ID != me.ID {
 			m.guildsTree.addDMAlert(message.ChannelID)
 			m.guildsTree.reorderDMChannel(message.ChannelID)
+			if dmNode := m.guildsTree.findNodeByReference(message.ChannelID); dmNode != nil {
+				m.guildsTree.setNodeLineStyle(dmNode, m.guildsTree.channelNodeStyle(*channel))
+			}
 		}
 	}
 
-	if isCurrentChannel {
+	if isCurrentChannel && m.appFocused {
 		return nil
 	}
 	return m.notify(*message)

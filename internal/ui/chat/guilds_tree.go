@@ -228,7 +228,7 @@ func (gt *guildsTree) rebuildDMAlertSection() {
 		node := tview.NewTreeNode(gt.dmAlertLabel(channelID)).
 			SetReference(dmAlertRef{channelID: channelID}).
 			SetIndent(gt.cfg.Theme.GuildsTree.Indents.DM)
-		gt.setNodeLineStyle(node, tcell.StyleDefault.Bold(true))
+		gt.setNodeLineStyle(node, tcell.StyleDefault.Bold(true).Underline(true))
 		alertNodes = append(alertNodes, node)
 		gt.dmAlertNodeByID[channelID] = node
 	}
@@ -267,6 +267,23 @@ func (gt *guildsTree) addDMAlert(channelID discord.ChannelID) {
 		gt.dmAlertOrder = append([]discord.ChannelID{channelID}, gt.dmAlertOrder...)
 	}
 	gt.dmAlertCounts[channelID]++
+	for i := 1; i < len(gt.dmAlertOrder); i++ {
+		if gt.dmAlertOrder[i] == channelID {
+			gt.dmAlertOrder = append([]discord.ChannelID{channelID}, append(gt.dmAlertOrder[:i], gt.dmAlertOrder[i+1:]...)...)
+			break
+		}
+	}
+	gt.rebuildDMAlertSection()
+}
+
+func (gt *guildsTree) setDMAlertCount(channelID discord.ChannelID, count int) {
+	if channelID == 0 || count <= 0 {
+		return
+	}
+	if _, ok := gt.dmAlertCounts[channelID]; !ok {
+		gt.dmAlertOrder = append([]discord.ChannelID{channelID}, gt.dmAlertOrder...)
+	}
+	gt.dmAlertCounts[channelID] = count
 	for i := 1; i < len(gt.dmAlertOrder); i++ {
 		if gt.dmAlertOrder[i] == channelID {
 			gt.dmAlertOrder = append([]discord.ChannelID{channelID}, append(gt.dmAlertOrder[:i], gt.dmAlertOrder[i+1:]...)...)

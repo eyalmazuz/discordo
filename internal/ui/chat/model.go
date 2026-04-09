@@ -121,6 +121,8 @@ type Model struct {
 
 	app *tview.Application
 	cfg *config.Config
+
+	appFocused bool
 }
 
 func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
@@ -134,6 +136,8 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 
 		app: app,
 		cfg: cfg,
+
+		appFocused: true,
 	}
 
 	m.guildsTree = newGuildsTree(cfg, m)
@@ -462,6 +466,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		}
 		m.messageInput.SetPlaceholder(tview.NewLine(tview.NewSegment(text, tcell.StyleDefault.Dim(true))))
 		return focusCmd
+	case *tcell.EventFocus:
+		m.appFocused = msg.Focused
+		return nil
 	case *QuitMsg:
 		return tview.Batch(
 			m.closeState(),

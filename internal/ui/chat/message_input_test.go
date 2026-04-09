@@ -57,8 +57,8 @@ func TestMessageInputTabSuggestAndCompleteEmoji(t *testing.T) {
 
 	mi.mentionsList.SetCursor(1)
 	mi.tabComplete()
-	if got := mi.GetText(); got != "<a:mycustomemojianim:2> " {
-		t.Fatalf("expected emoji completion to insert animated emoji syntax, got %q", got)
+	if got := mi.GetText(); got != ":mycustomemojianim: " {
+		t.Fatalf("expected emoji completion to insert emoji syntax, got %q", got)
 	}
 	if mi.mentionsList.itemCount() != 0 {
 		t.Fatal("expected emoji tab completion to clear suggestions")
