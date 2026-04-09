@@ -2773,3 +2773,69 @@ func TestMessagesList_MoreBranches(t *testing.T) {
 		ml.pin()
 	})
 }
+
+func TestMessagesList_RebuildRows_Embeds(t *testing.T) {
+	m := newTestModel()
+	ml := m.messagesList
+	ml.cfg.InlineImages.Enabled = true
+	ml.cfg.InlineImages.EmbedImages = true
+	ml.cfg.InlineImages.EmbedThumbnails = true
+	ml.cfg.DateSeparator.Enabled = false
+
+	msg := discord.Message{
+		ID: 1,
+		Embeds: []discord.Embed{
+			{
+				Image:     &discord.EmbedImage{URL: "https://example.com/image.png"},
+				Thumbnail: &discord.EmbedThumbnail{URL: "https://example.com/thumb.png"},
+			},
+		},
+	}
+	ml.messages = []discord.Message{msg}
+	ml.rebuildRows()
+
+	// Should have 3 rows: message, embed image, embed thumbnail
+	if len(ml.rows) != 3 {
+		t.Errorf("expected 3 rows, got %d", len(ml.rows))
+	}
+
+	if ml.rows[1].kind != messagesListRowEmbedImage || ml.rows[1].isThumbnail {
+		t.Errorf("expected embed image row at index 1")
+	}
+	if ml.rows[2].kind != messagesListRowEmbedImage || !ml.rows[2].isThumbnail {
+		t.Errorf("expected embed thumbnail row at index 2")
+	}
+
+	t.Run("Deduplication", func(t *testing.T) {
+		msg2 := discord.Message{
+			ID: 2,
+			Attachments: []discord.Attachment{
+				{URL: "https://example.com/dup.png", ContentType: "image/png"},
+			},
+			Embeds: []discord.Embed{
+				{
+					Image: &discord.EmbedImage{URL: "https://example.com/dup.png"},
+				},
+			},
+		}
+		ml.messages = []discord.Message{msg2}
+		ml.rebuildRows()
+
+		// Should have 2 rows: message, attachment image (embed image is dup)
+		if len(ml.rows) != 2 {
+			t.Errorf("expected 2 rows, got %d", len(ml.rows))
+		}
+	})
+
+	t.Run("ConfigDisabled", func(t *testing.T) {
+		ml.cfg.InlineImages.EmbedImages = false
+		ml.cfg.InlineImages.EmbedThumbnails = false
+		ml.messages = []discord.Message{msg}
+		ml.rebuildRows()
+
+		// Should have 1 row: message only
+		if len(ml.rows) != 1 {
+			t.Errorf("expected 1 row, got %d", len(ml.rows))
+		}
+	})
+}

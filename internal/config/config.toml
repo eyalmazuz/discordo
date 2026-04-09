@@ -66,6 +66,10 @@ receive = true
 [inline_images]
 # Whether to render image attachments inline. Requires a true-color terminal.
 enabled = false
+# Whether to render large images from embeds.
+embed_images = true
+# Whether to render thumbnails from embeds.
+embed_thumbnails = true
 # Whether to enable animations (GIF) or not.
 animations = true
 # Maximum dimensions in cells for rendered images.

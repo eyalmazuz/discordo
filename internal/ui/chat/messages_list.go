@@ -128,6 +128,7 @@ const (
 	messagesListRowSeparator
 	messagesListRowImage
 	messagesListRowSticker
+	messagesListRowEmbedImage
 )
 
 type messagesListRow struct {
@@ -135,6 +136,8 @@ type messagesListRow struct {
 	messageIndex    int
 	attachmentIndex int
 	stickerIndex    int
+	embedIndex      int
+	isThumbnail     bool
 	timestamp       discord.Timestamp
 }
 
@@ -595,6 +598,10 @@ func (ml *messagesList) buildItem(index int, cursor int) list.Item {
 		return ml.buildStickerItem(row)
 	}
 
+	if row.kind == messagesListRowEmbedImage {
+		return ml.buildEmbedImageItem(row)
+	}
+
 	message := ml.messages[row.messageIndex]
 	if index == cursor {
 		return tview.NewTextView().
@@ -652,6 +659,42 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 
 	// Request async download if not already cached.
 	ml.imageCache.Request(url, cfg.MaxFileSize, a.Size, func() {
+		triggerRedraw(ml.chat.app)
+	})
+
+	return item
+}
+
+func (ml *messagesList) buildEmbedImageItem(row messagesListRow) *imageItem {
+	msg := ml.messages[row.messageIndex]
+	e := msg.Embeds[row.embedIndex]
+
+	var url string
+	var key string
+	if row.isThumbnail {
+		url = string(e.Thumbnail.URL)
+		key = fmt.Sprintf("%s-embed-%d-thumbnail", msg.ID, row.embedIndex)
+	} else {
+		url = string(e.Image.URL)
+		key = fmt.Sprintf("%s-embed-%d-image", msg.ID, row.embedIndex)
+	}
+
+	if item, ok := ml.imageItemByKey[key]; ok {
+		return item
+	}
+
+	cfg := ml.cfg.InlineImages
+	kittyID := ml.nextKittyID
+	ml.nextKittyID++
+
+	item := newImageItem(ml.imageCache, url, cfg.MaxWidth, cfg.MaxHeight, ml.currentUseKitty(), kittyID, ml.InnerRect, ml.scheduleAnimatedRedraw)
+	if ml.currentUseKitty() && ml.cellW > 0 {
+		item.setCellDimensions(ml.cellW, ml.cellH)
+	}
+	ml.imageItemByKey[key] = item
+
+	// Request async download if not already cached.
+	ml.imageCache.Request(url, cfg.MaxFileSize, 0, func() {
 		triggerRedraw(ml.chat.app)
 	})
 
@@ -730,8 +773,10 @@ func (ml *messagesList) rebuildRows() {
 		})
 
 		if ml.cfg.InlineImages.Enabled {
+			seenURLs := make(map[string]struct{})
 			for j, a := range ml.messages[i].Attachments {
 				if strings.HasPrefix(a.ContentType, "image/") {
+					seenURLs[string(a.URL)] = struct{}{}
 					rows = append(rows, messagesListRow{
 						kind:            messagesListRowImage,
 						messageIndex:    i,
@@ -746,6 +791,33 @@ func (ml *messagesList) rebuildRows() {
 					messageIndex: i,
 					stickerIndex: j,
 				})
+			}
+
+			for j, e := range ml.messages[i].Embeds {
+				if ml.cfg.InlineImages.EmbedImages && e.Image != nil && e.Image.URL != "" {
+					u := string(e.Image.URL)
+					if _, ok := seenURLs[u]; !ok && !strings.HasPrefix(u, "https://cdn.discordapp.com/emojis/") {
+						seenURLs[u] = struct{}{}
+						rows = append(rows, messagesListRow{
+							kind:         messagesListRowEmbedImage,
+							messageIndex: i,
+							embedIndex:   j,
+							isThumbnail:  false,
+						})
+					}
+				}
+				if ml.cfg.InlineImages.EmbedThumbnails && e.Thumbnail != nil && e.Thumbnail.URL != "" {
+					u := string(e.Thumbnail.URL)
+					if _, ok := seenURLs[u]; !ok {
+						seenURLs[u] = struct{}{}
+						rows = append(rows, messagesListRow{
+							kind:         messagesListRowEmbedImage,
+							messageIndex: i,
+							embedIndex:   j,
+							isThumbnail:  true,
+						})
+					}
+				}
 			}
 		}
 	}
@@ -1775,6 +1847,9 @@ func extractEmbedURLs(embeds []discord.Embed) []string {
 		}
 		if embed.Image != nil && embed.Image.URL != "" {
 			urls = append(urls, string(embed.Image.URL))
+		}
+		if embed.Thumbnail != nil && embed.Thumbnail.URL != "" {
+			urls = append(urls, string(embed.Thumbnail.URL))
 		}
 		if embed.Video != nil && embed.Video.URL != "" {
 			urls = append(urls, string(embed.Video.URL))
