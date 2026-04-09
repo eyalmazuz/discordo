@@ -532,7 +532,7 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 		embedContentLines := make([]tview.Line, 0, len(lines)*2)
 		barStyle := defaultBarStyle
 		if embed.Color != discord.NullColor && embed.Color != 0 {
-			barStyle = barStyle.Foreground(tcell.NewHexColor(int32(embed.Color.Uint32())))
+			barStyle = barStyle.Foreground(tcell.NewHexColor(int32(embed.Color)))
 		}
 		prefix := tview.NewSegment(prefixText, barStyle)
 		builder.NewLine()
