@@ -41,11 +41,11 @@ type guildsTree struct {
 
 var _ help.KeyMap = (*guildsTree)(nil)
 
-func newGuildsTree(cfg *config.Config, chatView *Model) *guildsTree {
+func newGuildsTree(cfg *config.Config, chat *Model) *guildsTree {
 	gt := &guildsTree{
 		TreeView: tview.NewTreeView(),
 		cfg:      cfg,
-		chat:     chatView,
+		chat:     chat,
 
 		guildNodeByID:   make(map[discord.GuildID]*tview.TreeNode),
 		channelNodeByID: make(map[discord.ChannelID]*tview.TreeNode),

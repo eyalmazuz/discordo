@@ -15,13 +15,14 @@ import (
 
 type channelsPicker struct {
 	*picker.Model
-	chatView *Model
+	chat *Model
+	cfg  *config.Config
 }
 
 var _ help.KeyMap = (*channelsPicker)(nil)
 
-func newChannelsPicker(cfg *config.Config, chatView *Model) *channelsPicker {
-	cp := &channelsPicker{picker.NewModel(), chatView}
+func newChannelsPicker(cfg *config.Config, chat *Model) *channelsPicker {
+	cp := &channelsPicker{Model: picker.NewModel(), chat: chat, cfg: cfg}
 	ConfigurePicker(cp.Model, cfg, "Channels")
 	return cp
 }
@@ -34,28 +35,28 @@ func (cp *channelsPicker) Update(msg tview.Msg) tview.Cmd {
 			return nil
 		}
 
-		channel, err := cp.chatView.state.Cabinet.Channel(channelID)
+		channel, err := cp.chat.state.Cabinet.Channel(channelID)
 		if err != nil {
 			slog.Error("failed to get channel from state", "err", err, "channel_id", channelID)
 			return nil
 		}
 
-		node := cp.chatView.guildsTree.findNodeByChannelID(channel.ID)
+		node := cp.chat.guildsTree.findNodeByChannelID(channel.ID)
 		if node == nil {
 			slog.Error("failed to locate channel in tree", "channel_id", channel.ID)
 			return nil
 		}
 
-		cp.chatView.guildsTree.expandPathToNode(node)
-		cp.chatView.guildsTree.SetCurrentNode(node)
+		cp.chat.guildsTree.expandPathToNode(node)
+		cp.chat.guildsTree.SetCurrentNode(node)
 		var selectCmd tview.Cmd
 		if channel.Type != discord.GuildCategory {
-			selectCmd = cp.chatView.guildsTree.onSelected(node)
+			selectCmd = cp.chat.guildsTree.onSelected(node)
 		}
-		cp.chatView.closePicker()
+		cp.chat.closePicker()
 		return selectCmd
 	case *picker.CancelMsg:
-		cp.chatView.closePicker()
+		cp.chat.closePicker()
 		return nil
 	}
 	return cp.Model.Update(msg)
@@ -63,7 +64,7 @@ func (cp *channelsPicker) Update(msg tview.Msg) tview.Cmd {
 
 func (cp *channelsPicker) update() {
 	var items picker.Items
-	state := cp.chatView.state
+	state := cp.chat.state
 	if state == nil {
 		cp.Model.SetItems(nil)
 		return
@@ -100,7 +101,7 @@ func (cp *channelsPicker) update() {
 		}
 	}
 
-	cp.Model.SetItems(items)
+	cp.SetItems(items)
 }
 
 func (cp *channelsPicker) addChannel(guild *discord.Guild, channel discord.Channel) {
@@ -109,7 +110,7 @@ func (cp *channelsPicker) addChannel(guild *discord.Guild, channel discord.Chann
 
 func (cp *channelsPicker) channelItem(guild *discord.Guild, channel discord.Channel) picker.Item {
 	var b strings.Builder
-	b.WriteString(ui.ChannelToString(channel, cp.chatView.cfg.Icons, cp.chatView.state))
+	b.WriteString(ui.ChannelToString(channel, cp.cfg.Icons, cp.chat.state))
 
 	if guild != nil {
 		b.WriteString(" - ")
@@ -121,12 +122,12 @@ func (cp *channelsPicker) channelItem(guild *discord.Guild, channel discord.Chan
 }
 
 func (cp *channelsPicker) ShortHelp() []keybind.Keybind {
-	cfg := cp.chatView.cfg.Keybinds.Picker
+	cfg := cp.cfg.Keybinds.Picker
 	return []keybind.Keybind{cfg.Up.Keybind, cfg.Down.Keybind, cfg.Select.Keybind, cfg.Cancel.Keybind}
 }
 
 func (cp *channelsPicker) FullHelp() [][]keybind.Keybind {
-	cfg := cp.chatView.cfg.Keybinds.Picker
+	cfg := cp.cfg.Keybinds.Picker
 	return [][]keybind.Keybind{
 		{cfg.Up.Keybind, cfg.Down.Keybind, cfg.Top.Keybind, cfg.Bottom.Keybind},
 		{cfg.Select.Keybind, cfg.Cancel.Keybind},

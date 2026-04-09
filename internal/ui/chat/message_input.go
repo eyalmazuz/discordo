@@ -61,11 +61,11 @@ type tabSuggestMsg struct{ tcell.EventTime }
 
 var _ help.KeyMap = (*messageInput)(nil)
 
-func newMessageInput(cfg *config.Config, chatView *Model) *messageInput {
+func newMessageInput(cfg *config.Config, chat *Model) *messageInput {
 	mi := &messageInput{
 		TextArea:        tview.NewTextArea(),
 		cfg:             cfg,
-		chat:            chatView,
+		chat:            chat,
 		sendMessageData: &api.SendMessageData{},
 		cache:           cache.NewCache(),
 		mentionsList:    newMentionsList(cfg, chatView),
