@@ -113,16 +113,22 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 	if isCurrentChannel {
 		m.removeTyper(message.Author.ID)
 		m.messagesList.addMessage(message.Message)
+
+		if m.appFocused {
+			go m.state.ReadState.MarkRead(message.ChannelID, message.ID)
+		}
 	}
 
 	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil && !channel.GuildID.IsValid() {
+		m.guildsTree.reorderDMChannel(message.ChannelID)
+
 		me, _ := m.state.Cabinet.Me()
-		if me == nil || message.Author.ID != me.ID {
+		if (me == nil || message.Author.ID != me.ID) && !isCurrentChannel {
 			m.guildsTree.addDMAlert(message.ChannelID)
-			m.guildsTree.reorderDMChannel(message.ChannelID)
-			if dmNode := m.guildsTree.findNodeByReference(message.ChannelID); dmNode != nil {
-				m.guildsTree.setNodeLineStyle(dmNode, m.guildsTree.channelNodeStyle(*channel))
-			}
+		}
+
+		if dmNode := m.guildsTree.findNodeByReference(message.ChannelID); dmNode != nil {
+			m.guildsTree.setNodeLineStyle(dmNode, m.guildsTree.channelNodeStyle(*channel))
 		}
 	}
 
@@ -144,19 +150,19 @@ func (m *Model) notify(message gateway.MessageCreateEvent) tview.Cmd {
 
 func (m *Model) onMessageUpdate(message *gateway.MessageUpdateEvent) {
 	selectedChannel := m.SelectedChannel()
-	if selectedChannel == nil {
-		return
-	}
-
-	if selectedChannel.ID == message.ChannelID {
+	if selectedChannel != nil && selectedChannel.ID == message.ChannelID {
 		index := slices.IndexFunc(m.messagesList.messages, func(m discord.Message) bool {
 			return m.ID == message.ID
 		})
-		if index < 0 {
-			return
+		if index >= 0 {
+			m.messagesList.setMessage(index, message.Message)
 		}
+	}
 
-		m.messagesList.setMessage(index, message.Message)
+	if channelNode := m.guildsTree.findNodeByReference(message.ChannelID); channelNode != nil {
+		if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil {
+			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
+		}
 	}
 }
 
@@ -259,15 +265,20 @@ func (m *Model) onReadUpdate(event *read.UpdateEvent) {
 
 	// Channel style is always updated for the target channel regardless of
 	// whether it's in a guild or DM.
+	channel, err := m.state.Cabinet.Channel(event.ChannelID)
+	if err == nil && !channel.GuildID.IsValid() {
+		if m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true}) == ningen.ChannelRead {
+			m.guildsTree.clearDMAlert(event.ChannelID)
+		} else if event.MentionCount > 0 {
+			m.guildsTree.setDMAlertCount(event.ChannelID, event.MentionCount)
+		}
+	}
+
 	if channelNode := m.guildsTree.findNodeByReference(event.ChannelID); channelNode != nil {
-		channel, err := m.state.Cabinet.Channel(event.ChannelID)
 		if err != nil {
 			indication := m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true})
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.unreadStyle(indication))
 			return
-		}
-		if !channel.GuildID.IsValid() && m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true}) == ningen.ChannelRead {
-			m.guildsTree.clearDMAlert(event.ChannelID)
 		}
 		m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
 	}
