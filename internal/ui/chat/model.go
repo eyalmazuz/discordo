@@ -529,6 +529,23 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, m.cfg.Keybinds.TogglePinnedMessages.Keybind):
 			m.openPinnedMessages()
 			return nil
+		case msg.Key() == tcell.KeyEscape:
+			// Allow focused components to clear their own internal state first
+			if m.app.Focused() == m.messagesList && m.messagesList.Cursor() != -1 {
+				break
+			}
+			if m.app.Focused() == m.messageInput && m.messageInput.GetText() != "" {
+				break
+			}
+			// If we're already at the top-level selection state, clear the channel to show the landing page
+			if m.SelectedChannel() != nil {
+				m.SetSelectedChannel(nil)
+				m.messagesList.reset()
+				m.messageInput.reset()
+				m.messageInput.SetDisabled(true)
+				m.updateFooter()
+				return tview.SetFocus(m.guildsTree)
+			}
 		}
 	case *tabSuggestMsg:
 		// Member search completes in a command goroutine; resume suggestion
