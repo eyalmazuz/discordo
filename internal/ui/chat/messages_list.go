@@ -134,6 +134,7 @@ const (
 type messagesListRow struct {
 	kind            messagesListRowKind
 	messageIndex    int
+	snapshotIndex   int
 	attachmentIndex int
 	stickerIndex    int
 	embedIndex      int
@@ -639,9 +640,17 @@ func (ml *messagesList) buildSeparatorItem(ts discord.Timestamp) *tview.TextView
 
 func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 	msg := ml.messages[row.messageIndex]
-	a := msg.Attachments[row.attachmentIndex]
+	var a discord.Attachment
+	var key string
+	if len(msg.MessageSnapshots) > 0 {
+		a = msg.MessageSnapshots[row.snapshotIndex].Message.Attachments[row.attachmentIndex]
+		key = fmt.Sprintf("%s-snapshot-%d-%d", msg.ID, row.snapshotIndex, row.attachmentIndex)
+	} else {
+		a = msg.Attachments[row.attachmentIndex]
+		key = fmt.Sprintf("%s-%d", msg.ID, row.attachmentIndex)
+	}
+
 	url := string(a.URL)
-	key := fmt.Sprintf("%s-%d", msg.ID, row.attachmentIndex)
 
 	if item, ok := ml.imageItemByKey[key]; ok {
 		return item
@@ -667,16 +676,29 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 
 func (ml *messagesList) buildEmbedImageItem(row messagesListRow) *imageItem {
 	msg := ml.messages[row.messageIndex]
-	e := msg.Embeds[row.embedIndex]
+	var e discord.Embed
+	var key string
+	if len(msg.MessageSnapshots) > 0 {
+		e = msg.MessageSnapshots[row.snapshotIndex].Message.Embeds[row.embedIndex]
+		if row.isThumbnail {
+			key = fmt.Sprintf("%s-snapshot-%d-embed-%d-thumbnail", msg.ID, row.snapshotIndex, row.embedIndex)
+		} else {
+			key = fmt.Sprintf("%s-snapshot-%d-embed-%d-image", msg.ID, row.snapshotIndex, row.embedIndex)
+		}
+	} else {
+		e = msg.Embeds[row.embedIndex]
+		if row.isThumbnail {
+			key = fmt.Sprintf("%s-embed-%d-thumbnail", msg.ID, row.embedIndex)
+		} else {
+			key = fmt.Sprintf("%s-embed-%d-image", msg.ID, row.embedIndex)
+		}
+	}
 
 	var url string
-	var key string
 	if row.isThumbnail {
 		url = string(e.Thumbnail.URL)
-		key = fmt.Sprintf("%s-embed-%d-thumbnail", msg.ID, row.embedIndex)
 	} else {
 		url = string(e.Image.URL)
-		key = fmt.Sprintf("%s-embed-%d-image", msg.ID, row.embedIndex)
 	}
 
 	if item, ok := ml.imageItemByKey[key]; ok {
@@ -703,9 +725,17 @@ func (ml *messagesList) buildEmbedImageItem(row messagesListRow) *imageItem {
 
 func (ml *messagesList) buildStickerItem(row messagesListRow) *imageItem {
 	msg := ml.messages[row.messageIndex]
-	s := msg.Stickers[row.stickerIndex]
+	var s discord.StickerItem
+	var key string
+	if len(msg.MessageSnapshots) > 0 {
+		s = msg.MessageSnapshots[row.snapshotIndex].Message.Stickers[row.stickerIndex]
+		key = fmt.Sprintf("%s-snapshot-%d-sticker-%d", msg.ID, row.snapshotIndex, row.stickerIndex)
+	} else {
+		s = msg.Stickers[row.stickerIndex]
+		key = fmt.Sprintf("%s-%d", msg.ID, row.stickerIndex)
+	}
+
 	url := ui.StickerURL(s)
-	key := fmt.Sprintf("%s-%d", msg.ID, row.stickerIndex)
 
 	if item, ok := ml.stickerItemByKey[key]; ok {
 		return item
@@ -816,6 +846,58 @@ func (ml *messagesList) rebuildRows() {
 							embedIndex:   j,
 							isThumbnail:  true,
 						})
+					}
+				}
+			}
+
+			for j, s := range ml.messages[i].MessageSnapshots {
+				for k, a := range s.Message.Attachments {
+					if strings.HasPrefix(a.ContentType, "image/") {
+						seenURLs[string(a.URL)] = struct{}{}
+						rows = append(rows, messagesListRow{
+							kind:            messagesListRowImage,
+							messageIndex:    i,
+							snapshotIndex:   j,
+							attachmentIndex: k,
+						})
+					}
+				}
+
+				for k := range s.Message.Stickers {
+					rows = append(rows, messagesListRow{
+						kind:          messagesListRowSticker,
+						messageIndex:  i,
+						snapshotIndex: j,
+						stickerIndex:  k,
+					})
+				}
+
+				for k, e := range s.Message.Embeds {
+					if ml.cfg.InlineImages.EmbedImages && e.Image != nil && e.Image.URL != "" {
+						u := string(e.Image.URL)
+						if _, ok := seenURLs[u]; !ok && !strings.HasPrefix(u, "https://cdn.discordapp.com/emojis/") {
+							seenURLs[u] = struct{}{}
+							rows = append(rows, messagesListRow{
+								kind:          messagesListRowEmbedImage,
+								messageIndex:  i,
+								snapshotIndex: j,
+								embedIndex:    k,
+								isThumbnail:   false,
+							})
+						}
+					}
+					if ml.cfg.InlineImages.EmbedThumbnails && e.Thumbnail != nil && e.Thumbnail.URL != "" {
+						u := string(e.Thumbnail.URL)
+						if _, ok := seenURLs[u]; !ok {
+							seenURLs[u] = struct{}{}
+							rows = append(rows, messagesListRow{
+								kind:          messagesListRowEmbedImage,
+								messageIndex:  i,
+								snapshotIndex: j,
+								embedIndex:    k,
+								isThumbnail:   true,
+							})
+						}
 					}
 				}
 			}
@@ -1058,7 +1140,37 @@ func (ml *messagesList) drawSnapshotContent(builder *tview.LineBuilder, parent d
 		ChannelID:       parent.ChannelID,
 		GuildID:         parent.GuildID,
 	}
+
 	ml.drawContent(builder, message, baseStyle, hideSpoilers)
+
+	if message.EditedTimestamp.IsValid() {
+		dimStyle := baseStyle.Dim(true)
+		builder.Write(" (edited)", dimStyle)
+	}
+
+	ml.drawEmbeds(builder, message, baseStyle)
+
+	for _, s := range message.Stickers {
+		if ml.cfg.InlineImages.Enabled {
+			continue
+		}
+		builder.NewLine()
+		builder.Write("[Sticker: "+s.Name+"]", baseStyle.Italic(true))
+	}
+
+	attachmentStyle := ui.MergeStyle(baseStyle, ml.cfg.Theme.MessagesList.AttachmentStyle.Style)
+	for _, a := range message.Attachments {
+		if ml.cfg.InlineImages.Enabled && strings.HasPrefix(a.ContentType, "image/") {
+			continue
+		}
+
+		builder.NewLine()
+		if ml.cfg.ShowAttachmentLinks {
+			builder.Write(a.Filename+":\n"+a.URL, attachmentStyle)
+		} else {
+			builder.Write(a.Filename, attachmentStyle)
+		}
+	}
 }
 
 func (ml *messagesList) drawDefaultMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
@@ -1451,8 +1563,15 @@ func (ml *messagesList) drawForwardedMessage(builder *tview.LineBuilder, message
 	ml.drawTimestamps(builder, message.Timestamp, baseStyle)
 	ml.drawAuthor(builder, message, baseStyle)
 	builder.Write(ml.cfg.Theme.MessagesList.ForwardedIndicator+" ", dimStyle)
-	ml.drawSnapshotContent(builder, message, message.MessageSnapshots[0].Message, baseStyle, hideSpoilers)
-	builder.Write(" ("+ml.formatTimestamp(message.MessageSnapshots[0].Message.Timestamp)+") ", dimStyle)
+
+	for i, s := range message.MessageSnapshots {
+		if i > 0 {
+			builder.NewLine()
+			builder.Write("  ", dimStyle)
+		}
+		ml.drawSnapshotContent(builder, message, s.Message, baseStyle, hideSpoilers)
+		builder.Write(" ("+ml.formatTimestamp(s.Message.Timestamp)+") ", dimStyle)
+	}
 }
 
 func (ml *messagesList) drawReplyMessage(builder *tview.LineBuilder, message discord.Message, baseStyle tcell.Style, hideSpoilers bool) {
@@ -1759,10 +1878,23 @@ func (ml *messagesList) yankMessageID() tview.Cmd {
 func (ml *messagesList) messageText(msg discord.Message, row messagesListRow) string {
 	switch row.kind {
 	case messagesListRowImage:
+		if len(msg.MessageSnapshots) > 0 {
+			return string(msg.MessageSnapshots[row.snapshotIndex].Message.Attachments[row.attachmentIndex].URL)
+		}
 		return string(msg.Attachments[row.attachmentIndex].URL)
 	case messagesListRowSticker:
+		if len(msg.MessageSnapshots) > 0 {
+			return ui.StickerURL(msg.MessageSnapshots[row.snapshotIndex].Message.Stickers[row.stickerIndex])
+		}
 		return ui.StickerURL(msg.Stickers[row.stickerIndex])
 	case messagesListRowEmbedImage:
+		if len(msg.MessageSnapshots) > 0 {
+			e := msg.MessageSnapshots[row.snapshotIndex].Message.Embeds[row.embedIndex]
+			if row.isThumbnail {
+				return string(e.Thumbnail.URL)
+			}
+			return string(e.Image.URL)
+		}
 		if row.isThumbnail {
 			return string(msg.Embeds[row.embedIndex].Thumbnail.URL)
 		}
@@ -1774,7 +1906,24 @@ func (ml *messagesList) messageText(msg discord.Message, row messagesListRow) st
 	}
 
 	if len(msg.MessageSnapshots) > 0 {
-		return msg.MessageSnapshots[0].Message.Content
+		snapshot := msg.MessageSnapshots[0].Message
+		if snapshot.Content != "" {
+			return snapshot.Content
+		}
+		if len(snapshot.Attachments) > 0 {
+			return string(snapshot.Attachments[0].URL)
+		}
+		if len(snapshot.Stickers) > 0 {
+			return ui.StickerURL(snapshot.Stickers[0])
+		}
+		if len(snapshot.Embeds) > 0 {
+			if snapshot.Embeds[0].Image != nil {
+				return string(snapshot.Embeds[0].Image.URL)
+			}
+			if snapshot.Embeds[0].Thumbnail != nil {
+				return string(snapshot.Embeds[0].Thumbnail.URL)
+			}
+		}
 	}
 
 	switch msg.Type {
@@ -1826,14 +1975,29 @@ func (ml *messagesList) yankURL() tview.Cmd {
 	var url string
 	switch row.kind {
 	case messagesListRowImage:
-		url = string(msg.Attachments[row.attachmentIndex].URL)
-	case messagesListRowSticker:
-		url = ui.StickerURL(msg.Stickers[row.stickerIndex])
-	case messagesListRowEmbedImage:
-		if row.isThumbnail {
-			url = string(msg.Embeds[row.embedIndex].Thumbnail.URL)
+		if len(msg.MessageSnapshots) > 0 {
+			url = string(msg.MessageSnapshots[row.snapshotIndex].Message.Attachments[row.attachmentIndex].URL)
 		} else {
-			url = string(msg.Embeds[row.embedIndex].Image.URL)
+			url = string(msg.Attachments[row.attachmentIndex].URL)
+		}
+	case messagesListRowSticker:
+		if len(msg.MessageSnapshots) > 0 {
+			url = ui.StickerURL(msg.MessageSnapshots[row.snapshotIndex].Message.Stickers[row.stickerIndex])
+		} else {
+			url = ui.StickerURL(msg.Stickers[row.stickerIndex])
+		}
+	case messagesListRowEmbedImage:
+		var e discord.Embed
+		if len(msg.MessageSnapshots) > 0 {
+			e = msg.MessageSnapshots[row.snapshotIndex].Message.Embeds[row.embedIndex]
+		} else {
+			e = msg.Embeds[row.embedIndex]
+		}
+
+		if row.isThumbnail {
+			url = string(e.Thumbnail.URL)
+		} else {
+			url = string(e.Image.URL)
 		}
 	default:
 		url = msg.URL()
@@ -1848,10 +2012,43 @@ func (ml *messagesList) yankURL() tview.Cmd {
 }
 
 func (ml *messagesList) open() tview.Cmd {
+	ml.ensureRows()
+	rowIndex := ml.Model.Cursor()
+	if rowIndex < 0 || rowIndex >= len(ml.rows) {
+		return nil
+	}
+	row := ml.rows[rowIndex]
+
 	msg, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
 		return nil
+	}
+
+	if msg.Reference != nil && msg.Reference.MessageID.IsValid() {
+		isForward := msg.Reference.Type == discord.MessageReferenceTypeForward
+		if isForward || row.kind == messagesListRowMessage {
+			channelID := msg.Reference.ChannelID
+			if !channelID.IsValid() {
+				channelID = msg.ChannelID
+			}
+
+			var channel *discord.Channel
+			if sc := ml.chat.SelectedChannel(); sc != nil && sc.ID == channelID {
+				channel = sc
+			} else {
+				channel, _ = ml.chat.state.Cabinet.Channel(channelID)
+			}
+
+			if channel != nil {
+				return func() tview.Msg {
+					if err := ml.jumpToMessage(*channel, msg.Reference.MessageID); err != nil {
+						slog.Error("failed to jump to referenced message", "err", err, "channel_id", channel.ID, "message_id", msg.Reference.MessageID)
+					}
+					return nil
+				}
+			}
+		}
 	}
 
 	urls := messageURLs(*msg)

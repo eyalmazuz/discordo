@@ -26,6 +26,9 @@ func TestMessagesList_drawForwardedMessage_Parity(t *testing.T) {
 				Message: discord.MessageSnapshotMessage{
 					Content:   "forwarded content",
 					Timestamp: discord.NewTimestamp(time.Now().Add(-time.Hour)),
+					Attachments: []discord.Attachment{
+						{Filename: "image.png", URL: "http://image.url", ContentType: "image/png"},
+					},
 				},
 			},
 		},

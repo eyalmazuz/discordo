@@ -631,6 +631,85 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		if got := waitForCopiedText(t, copied); got != "forwarded text" {
 			t.Fatalf("expected copied forwarded text, got %q", got)
 		}
+
+		// Test rebuildRows with forwarded image
+		ml.setMessages([]discord.Message{
+			{
+				ID: 30, ChannelID: 99,
+				MessageSnapshots: []discord.MessageSnapshot{
+					{
+						Message: discord.MessageSnapshotMessage{
+							Attachments: []discord.Attachment{{URL: "http://forwarded.image", ContentType: "image/png"}},
+						},
+					},
+				},
+			},
+		})
+		ml.cfg.InlineImages.Enabled = true
+		ml.invalidateRows()
+		ml.ensureRows()
+
+		// Row 0: separator
+		// Row 1: message 30
+		// Row 2: image for message 30 snapshot 0
+		if len(ml.rows) != 3 {
+			t.Fatalf("expected 3 rows for forwarded image, got %d", len(ml.rows))
+		}
+		if ml.rows[2].kind != messagesListRowImage || ml.rows[2].snapshotIndex != 0 || ml.rows[2].attachmentIndex != 0 {
+			t.Fatalf("expected row 2 to be snapshot image, got kind=%d", ml.rows[2].kind)
+		}
+
+		ml.Model.SetCursor(2)
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
+		if got := waitForCopiedText(t, copied); got != "http://forwarded.image" {
+			t.Fatalf("expected copied forwarded image URL, got %q", got)
+		}
+
+		// Test jump to reply
+		ch := &discord.Channel{ID: 99, Name: "general"}
+		m.state.Cabinet.ChannelStore.ChannelSet(ch, false)
+		ml.setMessages([]discord.Message{
+			{ID: 1, ChannelID: 99, Content: "original"},
+			{
+				ID: 2, ChannelID: 99, Content: "reply",
+				Reference: &discord.MessageReference{MessageID: 1, ChannelID: 99},
+			},
+		})
+		ml.SetCursor(0) // message 2 (newest)
+		cmd := ml.open()
+		if cmd == nil {
+			t.Fatal("expected command for jump to reply, got nil")
+		}
+
+		// Test jump to forward from image row
+		ml.setMessages([]discord.Message{
+			{
+				ID: 3, ChannelID: 99, Content: "",
+				Reference: &discord.MessageReference{MessageID: 1, ChannelID: 99, Type: discord.MessageReferenceTypeForward},
+				MessageSnapshots: []discord.MessageSnapshot{
+					{
+						Message: discord.MessageSnapshotMessage{
+							Attachments: []discord.Attachment{{URL: "http://forwarded.image", ContentType: "image/png"}},
+						},
+					},
+				},
+			},
+		})
+		ml.invalidateRows()
+		ml.ensureRows()
+
+		// Row 0: separator
+		// Row 1: message 3
+		// Row 2: image for message 3
+		ml.Model.SetCursor(2)
+		if ml.rows[2].kind != messagesListRowImage {
+			t.Fatalf("expected row 2 to be image, got %d", ml.rows[2].kind)
+		}
+
+		cmd = ml.open()
+		if cmd == nil {
+			t.Fatal("expected command for jump to forward from image row, got nil")
+		}
 	})
 
 	t.Run("reply key focuses composer", func(t *testing.T) {
