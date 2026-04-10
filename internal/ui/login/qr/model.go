@@ -2,7 +2,6 @@ package qr
 
 import (
 	"crypto/rsa"
-	"fmt"
 	"strings"
 	"time"
 
@@ -86,7 +85,7 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		if msg.discriminator != "0" {
 			name += "#" + msg.discriminator
 		}
-		m.msg = fmt.Sprintf("Check your phone! Logging in as %s", name)
+		m.msg = "Check your phone! Logging in as " + name
 		return m.listen()
 	case *pendingLoginMsg:
 		m.msg = "Authenticating..."
