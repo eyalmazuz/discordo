@@ -1235,8 +1235,10 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 	// Wrap against the current list viewport. This keeps embed wrapping stable even when sidebars/panes are resized.
 	wrapWidth := max(innerWidth-prefixWidth, 1)
 
+	seen := make(map[embedLineDedupKey]struct{})
+
 	for _, embed := range message.Embeds {
-		lines := embedLines(embed, contentURLs, ml.cfg.InlineImages.Enabled)
+		lines := embedLines(embed, contentURLs, ml.cfg.InlineImages.Enabled, seen)
 		if len(lines) == 0 {
 			continue
 		}
@@ -1247,7 +1249,6 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 			barStyle = barStyle.Foreground(tcell.NewHexColor(int32(embed.Color)))
 		}
 		prefix := tview.NewSegment(prefixText, barStyle)
-		builder.NewLine()
 		for _, line := range lines {
 			if strings.TrimSpace(line.Text) == "" {
 				continue
@@ -1272,6 +1273,7 @@ func (ml *messagesList) drawEmbeds(builder *tview.LineBuilder, message discord.M
 		}
 
 		if len(embedContentLines) > 0 {
+			builder.NewLine()
 			builder.AppendLines(embedContentLines)
 		}
 	}
@@ -1426,9 +1428,8 @@ type embedLineDedupKey struct {
 	text string
 }
 
-func embedLines(embed discord.Embed, contentURLs map[string]struct{}, inlineImagesEnabled bool) []embedLine {
+func embedLines(embed discord.Embed, contentURLs map[string]struct{}, inlineImagesEnabled bool, seen map[embedLineDedupKey]struct{}) []embedLine {
 	lines := make([]embedLine, 0, 8)
-	seen := make(map[embedLineDedupKey]struct{}, 8)
 
 	appendUnique := func(s string, kind embedLineKind, rawURL string) {
 		s = strings.TrimSpace(s)
@@ -2026,8 +2027,7 @@ func (ml *messagesList) open() tview.Cmd {
 	}
 
 	if msg.Reference != nil && msg.Reference.MessageID.IsValid() {
-		isForward := msg.Reference.Type == discord.MessageReferenceTypeForward
-		if isForward || row.kind == messagesListRowMessage {
+		if row.kind == messagesListRowMessage {
 			channelID := msg.Reference.ChannelID
 			if !channelID.IsValid() {
 				channelID = msg.ChannelID
@@ -2052,24 +2052,31 @@ func (ml *messagesList) open() tview.Cmd {
 	}
 
 	urls := messageURLs(*msg)
+	var attachments []discord.Attachment
+	attachments = append(attachments, msg.Attachments...)
+	for _, snapshot := range msg.MessageSnapshots {
+		urls = append(urls, extractURLs(snapshot.Message.Content)...)
+		urls = append(urls, extractEmbedURLs(snapshot.Message.Embeds)...)
+		attachments = append(attachments, snapshot.Message.Attachments...)
+	}
 
-	if len(urls) == 0 && len(msg.Attachments) == 0 {
+	if len(urls) == 0 && len(attachments) == 0 {
 		return nil
 	}
 
-	if len(urls)+len(msg.Attachments) == 1 {
+	if len(urls)+len(attachments) == 1 {
 		if len(urls) == 1 {
 			go ml.openURL(urls[0])
 		} else {
-			attachment := msg.Attachments[0]
+			attachment := attachments[0]
 			if strings.HasPrefix(attachment.ContentType, "image/") {
-				go ml.openAttachment(msg.Attachments[0])
+				go ml.openAttachment(attachments[0])
 			} else {
 				go ml.openURL(attachment.URL)
 			}
 		}
 	} else {
-		return ml.showAttachmentsList(urls, msg.Attachments)
+		return ml.showAttachmentsList(urls, attachments)
 	}
 	return nil
 }

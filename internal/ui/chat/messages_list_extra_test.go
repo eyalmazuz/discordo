@@ -681,7 +681,7 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			t.Fatal("expected command for jump to reply, got nil")
 		}
 
-		// Test jump to forward from image row
+		// Test open image from forward
 		ml.setMessages([]discord.Message{
 			{
 				ID: 3, ChannelID: 99, Content: "",
@@ -706,9 +706,21 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 			t.Fatalf("expected row 2 to be image, got %d", ml.rows[2].kind)
 		}
 
+		// Selecting the image row of a forward shouldn't jump to the original message, it should open the attachment.
+		// open() returns nil for opening attachments.
+		cmd = ml.open()
+		if cmd != nil {
+			t.Fatal("expected no jump command for image row of forward, got a command")
+		}
+		
+		// Selecting the text row should jump.
+		ml.Model.SetCursor(1)
+		if ml.rows[1].kind != messagesListRowMessage {
+			t.Fatalf("expected row 1 to be message, got %d", ml.rows[1].kind)
+		}
 		cmd = ml.open()
 		if cmd == nil {
-			t.Fatal("expected command for jump to forward from image row, got nil")
+			t.Fatal("expected command for jump to forward from text row, got nil")
 		}
 	})
 
