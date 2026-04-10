@@ -559,25 +559,77 @@ func TestMessagesListHandleEventActionBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("yank keybinds", func(t *testing.T) {
+	t.Run("yank keybinds and non-message rows", func(t *testing.T) {
 		m := newTestModelWithTransport(&mockTransport{})
 		ml := m.messagesList
-		ml.setMessages([]discord.Message{{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}}})
-		copied := stubClipboardWrite(t)
-		ml.SetCursor(0)
-		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))))
-		if got := waitForCopiedText(t, copied); got != "10" {
-			t.Fatalf("expected copied id %q, got %q", "10", got)
-		}
+		ml.setMessages([]discord.Message{
+			{ID: 10, ChannelID: 99, Content: "body", Author: discord.User{ID: 2, Username: "other"}},
+			{ID: 11, ChannelID: 99, Content: "", Type: discord.GuildMemberJoinMessage, Author: discord.User{ID: 3, Username: "joiner"}},
+			{ID: 12, ChannelID: 99, Content: "", Attachments: []discord.Attachment{{URL: "http://image.url", ContentType: "image/png"}}},
+		})
+		ml.cfg.InlineImages.Enabled = true
+		ml.invalidateRows()
+		ml.ensureRows()
 
+		copied := stubClipboardWrite(t)
+
+		// Test message row
+		// Messages are reversed internally in messagesList (newest first).
+		// msg 0: ID=12
+		// msg 1: ID=11
+		// msg 2: ID=10 (body)
+		ml.SetCursor(2)
 		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
 		if got := waitForCopiedText(t, copied); got != "body" {
 			t.Fatalf("expected copied content %q, got %q", "body", got)
 		}
 
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "i", tcell.ModNone))))
+		if got := waitForCopiedText(t, copied); got != "10" {
+			t.Fatalf("expected copied id %q, got %q", "10", got)
+		}
+
+		// Test join message
+		ml.SetCursor(1)
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
+		if got := waitForCopiedText(t, copied); got != "joiner joined the server." {
+			t.Fatalf("expected copied join text, got %q", got)
+		}
+
+		// Test image row selectability and yanking
+		// Row 0: separator
+		// Row 1: message 12
+		// Row 2: image for message 12
+		// Row 3: message 11
+		// Row 4: message 10
+		ml.Model.SetCursor(2)
+		if got := ml.Cursor(); got != 0 {
+			t.Fatalf("expected image row to return message index 0, got %d", got)
+		}
+
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
+		if got := waitForCopiedText(t, copied); got != "http://image.url" {
+			t.Fatalf("expected copied image URL, got %q", got)
+		}
+
 		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "u", tcell.ModNone))))
-		if got := waitForCopiedText(t, copied); got == "" || !strings.Contains(got, "/channels/") {
-			t.Fatalf("expected copied message URL, got %q", got)
+		if got := waitForCopiedText(t, copied); got != "http://image.url" {
+			t.Fatalf("expected yankURL on image row to copy image URL, got %q", got)
+		}
+
+		// Test forwarded message
+		ml.setMessages([]discord.Message{
+			{
+				ID: 20, ChannelID: 99, Content: "",
+				MessageSnapshots: []discord.MessageSnapshot{
+					{Message: discord.MessageSnapshotMessage{Content: "forwarded text"}},
+				},
+			},
+		})
+		ml.SetCursor(0)
+		executeCommand(requireCommand(t, ml.Update(tcell.NewEventKey(tcell.KeyRune, "y", tcell.ModNone))))
+		if got := waitForCopiedText(t, copied); got != "forwarded text" {
+			t.Fatalf("expected copied forwarded text, got %q", got)
 		}
 	})
 

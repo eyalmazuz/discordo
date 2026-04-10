@@ -855,7 +855,7 @@ func (ml *messagesList) Cursor() int {
 	}
 
 	row := ml.rows[rowIndex]
-	if row.kind != messagesListRowMessage {
+	if row.kind == messagesListRowSeparator {
 		return -1
 	}
 	return row.messageIndex
@@ -883,7 +883,7 @@ func (ml *messagesList) messageToRowIndex(messageIndex int) int {
 
 func (ml *messagesList) onRowCursorChanged(rowIndex int) {
 	ml.ensureRows()
-	if rowIndex < 0 || rowIndex >= len(ml.rows) || ml.rows[rowIndex].kind == messagesListRowMessage {
+	if rowIndex < 0 || rowIndex >= len(ml.rows) || ml.rows[rowIndex].kind != messagesListRowSeparator {
 		return
 	}
 
@@ -1756,15 +1756,54 @@ func (ml *messagesList) yankMessageID() tview.Cmd {
 	}
 }
 
+func (ml *messagesList) messageText(msg discord.Message, row messagesListRow) string {
+	switch row.kind {
+	case messagesListRowImage:
+		return string(msg.Attachments[row.attachmentIndex].URL)
+	case messagesListRowSticker:
+		return ui.StickerURL(msg.Stickers[row.stickerIndex])
+	case messagesListRowEmbedImage:
+		if row.isThumbnail {
+			return string(msg.Embeds[row.embedIndex].Thumbnail.URL)
+		}
+		return string(msg.Embeds[row.embedIndex].Image.URL)
+	}
+
+	if msg.Content != "" {
+		return msg.Content
+	}
+
+	if len(msg.MessageSnapshots) > 0 {
+		return msg.MessageSnapshots[0].Message.Content
+	}
+
+	switch msg.Type {
+	case discord.GuildMemberJoinMessage:
+		return msg.Author.DisplayOrUsername() + " joined the server."
+	case discord.ChannelPinnedMessage:
+		return msg.Author.DisplayOrUsername() + " pinned a message."
+	}
+
+	return ""
+}
+
 func (ml *messagesList) yankContent() tview.Cmd {
-	msg, err := ml.selectedMessage()
-	if err != nil {
-		slog.Error("failed to get selected message", "err", err)
+	ml.ensureRows()
+	rowIndex := ml.Model.Cursor()
+	if rowIndex < 0 || rowIndex >= len(ml.rows) {
 		return nil
 	}
 
+	row := ml.rows[rowIndex]
+	if row.kind == messagesListRowSeparator {
+		return nil
+	}
+
+	msg := ml.messages[row.messageIndex]
+	text := ml.messageText(msg, row)
+
 	return func() tview.Msg {
-		if err := clipboardWrite(clipboard.FmtText, []byte(msg.Content)); err != nil {
+		if err := clipboardWrite(clipboard.FmtText, []byte(text)); err != nil {
 			slog.Error("failed to copy message content", "err", err)
 		}
 		return nil
@@ -1772,14 +1811,36 @@ func (ml *messagesList) yankContent() tview.Cmd {
 }
 
 func (ml *messagesList) yankURL() tview.Cmd {
-	msg, err := ml.selectedMessage()
-	if err != nil {
-		slog.Error("failed to get selected message", "err", err)
+	ml.ensureRows()
+	rowIndex := ml.Model.Cursor()
+	if rowIndex < 0 || rowIndex >= len(ml.rows) {
 		return nil
 	}
 
+	row := ml.rows[rowIndex]
+	if row.kind == messagesListRowSeparator {
+		return nil
+	}
+
+	msg := ml.messages[row.messageIndex]
+	var url string
+	switch row.kind {
+	case messagesListRowImage:
+		url = string(msg.Attachments[row.attachmentIndex].URL)
+	case messagesListRowSticker:
+		url = ui.StickerURL(msg.Stickers[row.stickerIndex])
+	case messagesListRowEmbedImage:
+		if row.isThumbnail {
+			url = string(msg.Embeds[row.embedIndex].Thumbnail.URL)
+		} else {
+			url = string(msg.Embeds[row.embedIndex].Image.URL)
+		}
+	default:
+		url = msg.URL()
+	}
+
 	return func() tview.Msg {
-		if err := clipboardWrite(clipboard.FmtText, []byte(msg.URL())); err != nil {
+		if err := clipboardWrite(clipboard.FmtText, []byte(url)); err != nil {
 			slog.Error("failed to copy message url", "err", err)
 		}
 		return nil
