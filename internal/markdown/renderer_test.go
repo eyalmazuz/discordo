@@ -421,6 +421,33 @@ func TestRenderer_Document_Branch(t *testing.T) {
 	r.RenderLines(nil, doc, tcell.StyleDefault)
 }
 
+func TestRenderer_Blockquote(t *testing.T) {
+	cfg, _ := config.Load("")
+	r := NewRenderer(cfg)
+	source := []byte("> quote line 1\n> quote line 2\n\nafter")
+	root := goldmark.New().Parser().Parse(text.NewReader(source))
+
+	lines := r.RenderLines(source, root, tcell.StyleDefault)
+	if len(lines) == 0 {
+		t.Fatal("expected rendered lines")
+	}
+
+	var foundPrefix bool
+	for _, l := range lines {
+		for _, s := range l {
+			if strings.Contains(s.Text, " ▎ ") {
+				foundPrefix = true
+				if s.Style.GetAttributes()&tcell.AttrDim == 0 {
+					t.Errorf("expected blockquote prefix to be dimmed")
+				}
+			}
+		}
+	}
+	if !foundPrefix {
+		t.Error("expected blockquote prefix ' ▎ ' in rendered lines")
+	}
+}
+
 func TestRenderer_MultiLineToken(t *testing.T) {
 	cfg, _ := config.Load("")
 	r := NewRenderer(cfg)

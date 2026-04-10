@@ -20,9 +20,10 @@ type Renderer struct {
 
 	HideSpoilers bool
 
-	listIx     *int
-	listNested int
-	inSpoiler  int
+	listIx       *int
+	listNested   int
+	inSpoiler    int
+	inBlockquote int
 }
 
 const codeBlockIndent = "    "
@@ -53,6 +54,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 	r.listIx = nil
 	r.listNested = 0
 	r.inSpoiler = 0
+	r.inBlockquote = 0
 
 	builder := tview.NewLineBuilder()
 	styleStack := []tcell.Style{base}
@@ -70,6 +72,13 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 		}
 	}
 
+	newLine := func() {
+		builder.NewLine()
+		if r.inBlockquote > 0 {
+			builder.Write(" ▎ ", currentStyle().Dim(true))
+		}
+	}
+
 	theme := r.cfg.Theme.MessagesList
 	_ = ast.Walk(node, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		switch node := node.(type) {
@@ -79,23 +88,42 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			if entering {
 				builder.Write(strings.Repeat("#", node.Level)+" ", currentStyle())
 			} else {
-				builder.NewLine()
+				newLine()
+			}
+		case *ast.Blockquote:
+			if entering {
+				if r.inBlockquote == 0 {
+					builder.NewLine()
+				} else {
+					newLine()
+				}
+				r.inBlockquote++
+				builder.Write(" ▎ ", currentStyle().Dim(true))
+				pushStyle(currentStyle().Dim(true))
+			} else {
+				r.inBlockquote--
+				popStyle()
+				if r.inBlockquote == 0 {
+					builder.NewLine()
+				} else {
+					newLine()
+				}
 			}
 		case *ast.Text:
 			if entering {
 				r.renderTextWithEmojis(builder, string(node.Segment.Value(source)), currentStyle())
 				switch {
 				case node.HardLineBreak():
-					builder.NewLine()
-					builder.NewLine()
+					newLine()
+					newLine()
 				case node.SoftLineBreak():
-					builder.NewLine()
+					newLine()
 				}
 			}
 		case *ast.FencedCodeBlock:
 			if entering {
-				builder.NewLine()
-				r.renderFencedCodeBlock(builder, source, node, currentStyle())
+				newLine()
+				r.renderFencedCodeBlock(builder, source, node, currentStyle(), newLine)
 			}
 		case *ast.AutoLink:
 			if entering {
@@ -123,7 +151,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			}
 
 			if entering {
-				builder.NewLine()
+				newLine()
 				r.listNested++
 			} else {
 				r.listNested--
@@ -138,7 +166,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 					builder.Write("- ", currentStyle())
 				}
 			} else {
-				builder.NewLine()
+				newLine()
 			}
 		case *discordmd.Inline:
 			if entering {
@@ -178,7 +206,7 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 	return builder.Finish()
 }
 
-func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []byte, node *ast.FencedCodeBlock, base tcell.Style) {
+func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []byte, node *ast.FencedCodeBlock, base tcell.Style, newLine func()) {
 	var code strings.Builder
 	lines := node.Lines()
 	for i := range lines.Len() {
@@ -208,13 +236,13 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 	headerStyle := base.Dim(true)
 	if analyzed {
 		builder.Write(codeBlockIndent+"code: analyzed", headerStyle)
-		builder.NewLine()
+		newLine()
 	} else if language == "" {
 		builder.Write(codeBlockIndent+"code", headerStyle)
-		builder.NewLine()
+		newLine()
 	} else if !declaredLanguageSupported {
 		builder.Write(codeBlockIndent+"code: "+language, headerStyle)
-		builder.NewLine()
+		newLine()
 	}
 
 	iterator, err := tokeniseCodeBlock(lexer, code.String())
@@ -238,7 +266,7 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 		parts := strings.Split(token.Value, "\n")
 		for i, part := range parts {
 			if i > 0 {
-				builder.NewLine()
+				newLine()
 				builder.Write(codeBlockIndent, base)
 			}
 			if part != "" {
