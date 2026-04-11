@@ -530,6 +530,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			m.openPinnedMessages()
 			return nil
 		case msg.Key() == tcell.KeyEscape:
+			if m.hasPopupOverlay() {
+				break
+			}
 			// Allow focused components to clear their own internal state first
 			if m.app.Focused() == m.messagesList && m.messagesList.Cursor() != -1 {
 				break

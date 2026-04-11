@@ -119,16 +119,24 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 		}
 	}
 
-	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil && !channel.GuildID.IsValid() {
-		m.guildsTree.reorderDMChannel(message.ChannelID)
+	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil {
+		if !channel.GuildID.IsValid() {
+			m.guildsTree.reorderDMChannel(message.ChannelID)
 
-		me, _ := m.state.Cabinet.Me()
-		if (me == nil || message.Author.ID != me.ID) && !isCurrentChannel {
-			m.guildsTree.addDMAlert(message.ChannelID)
+			me, _ := m.state.Cabinet.Me()
+			if (me == nil || message.Author.ID != me.ID) && !isCurrentChannel {
+				m.guildsTree.addDMAlert(message.ChannelID)
+			}
 		}
 
-		if dmNode := m.guildsTree.findNodeByReference(message.ChannelID); dmNode != nil {
-			m.guildsTree.setNodeLineStyle(dmNode, m.guildsTree.channelNodeStyle(*channel))
+		if channelNode := m.guildsTree.findNodeByReference(message.ChannelID); channelNode != nil {
+			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
+		}
+
+		if channel.GuildID.IsValid() {
+			if guildNode := m.guildsTree.findNodeByReference(channel.GuildID); guildNode != nil {
+				m.guildsTree.setNodeLineStyle(guildNode, m.guildsTree.guildNodeStyle(channel.GuildID))
+			}
 		}
 	}
 
