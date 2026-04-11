@@ -437,8 +437,14 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		if node == nil {
 			return nil
 		}
-		channelID, ok := node.GetReference().(discord.ChannelID)
-		if !ok || channelID != msg.Channel.ID {
+		var channelID discord.ChannelID
+		switch ref := node.GetReference().(type) {
+		case discord.ChannelID:
+			channelID = ref
+		case dmAlertRef:
+			channelID = ref.channelID
+		}
+		if channelID != msg.Channel.ID {
 			return nil
 		}
 
@@ -531,13 +537,6 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			return nil
 		case msg.Key() == tcell.KeyEscape:
 			if m.hasPopupOverlay() {
-				break
-			}
-			// Allow focused components to clear their own internal state first
-			if m.app.Focused() == m.messagesList && m.messagesList.Cursor() != -1 {
-				break
-			}
-			if m.app.Focused() == m.messageInput && m.messageInput.GetText() != "" {
 				break
 			}
 			// If we're already at the top-level selection state, clear the channel to show the landing page
