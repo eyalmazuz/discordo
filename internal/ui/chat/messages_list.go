@@ -167,6 +167,7 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 	ml.SetBuilder(ml.buildItem)
 	ml.SetChangedFunc(ml.onRowCursorChanged)
 	ml.SetTrackEnd(true)
+	ml.SetAlignBottom(true)
 	ml.SetKeybinds(list.Keybinds{
 		ScrollUp:     cfg.Keybinds.MessagesList.ScrollUp.Keybind,
 		ScrollDown:   cfg.Keybinds.MessagesList.ScrollDown.Keybind,
@@ -247,6 +248,19 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 				item.drawnThisFrame = false
 				item.setCellDimensions(ml.cellW, ml.cellH)
 			}
+		}
+	}
+
+	// Clear the background to prevent text overlapping when scrolling large distances.
+	// We use spaces instead of screen.Clear() to avoid flickering and erasing Kitty images.
+	x, y, width, height := ml.InnerRect()
+	style := tcell.StyleDefault
+	if ml.cfg != nil {
+		style = ml.cfg.Theme.MessagesList.MessageStyle.Style
+	}
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			screen.SetContent(x+col, y+row, ' ', nil, style)
 		}
 	}
 
