@@ -102,7 +102,8 @@ type messagesList struct {
 	cellW, cellH        int      // cached cell pixel dimensions for Kitty mode
 	pendingDeletes      []uint32 // kitty IDs to delete in AfterDraw
 
-	fetchingOlder bool
+	fetchingOlder    bool
+	reachedBeginning bool
 
 	fetchingMembers struct {
 		mu    sync.Mutex
@@ -185,6 +186,7 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 func (ml *messagesList) reset() {
 	ml.stopAnimatedRedraw()
 	ml.fetchingOlder = false
+	ml.reachedBeginning = false
 	ml.messages = nil
 	ml.rows = nil
 	ml.rowsDirty = false
@@ -265,6 +267,18 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 	}
 
 	ml.Model.Draw(screen)
+
+	// Auto-fetch older messages if screen is not full at the top.
+	if !ml.fetchingOlder && !ml.reachedBeginning && len(ml.messages) > 0 && ml.FirstItemRow() > 0 {
+		cmd := ml.fetchOlderMessages()
+		if cmd != nil {
+			go func() {
+				if msg := cmd(); msg != nil {
+					ml.chat.app.Send(msg)
+				}
+			}()
+		}
+	}
 
 	ml.scanAndDrawEmotes(screen)
 
@@ -1694,7 +1708,11 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 	case *olderMessagesLoadedMsg:
 		ml.fetchingOlder = false
 		selectedChannel := ml.chat.SelectedChannel()
-		if selectedChannel == nil || selectedChannel.ID != msg.ChannelID || len(msg.Older) == 0 {
+		if selectedChannel == nil || selectedChannel.ID != msg.ChannelID {
+			return nil
+		}
+		if len(msg.Older) == 0 {
+			ml.reachedBeginning = true
 			return nil
 		}
 		prevCursor := ml.Cursor()
