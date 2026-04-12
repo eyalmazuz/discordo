@@ -553,6 +553,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		// Member search completes in a command goroutine; resume suggestion
 		// generation on the update loop to keep UI mutations serialized.
 		return m.messageInput.Update(msg)
+	case *olderMessagesLoadedMsg:
+		return m.messagesList.Update(msg)
 	}
 	return m.Layers.Update(msg)
 }

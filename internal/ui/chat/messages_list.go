@@ -270,6 +270,7 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 
 	// Auto-fetch older messages if screen is not full at the top.
 	if !ml.fetchingOlder && !ml.reachedBeginning && len(ml.messages) > 0 && ml.FirstItemRow() > 0 {
+		slog.Debug("auto-fetching older messages to fill screen", "first_row", ml.FirstItemRow(), "msg_count", len(ml.messages))
 		cmd := ml.fetchOlderMessages()
 		if cmd != nil {
 			go func() {
