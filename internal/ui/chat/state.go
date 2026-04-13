@@ -45,8 +45,8 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 	// Initialize DM alerts from ReadStates
 	for _, ch := range event.PrivateChannels {
 		for _, rs := range event.ReadStates {
-			if rs.ChannelID == ch.ID && rs.MentionCount > 0 {
-				m.guildsTree.setDMAlertCount(ch.ID, rs.MentionCount)
+			if rs.ChannelID == ch.ID && ch.LastMessageID > rs.LastMessageID {
+				m.guildsTree.addDMAlert(ch.ID)
 				break
 			}
 		}
@@ -130,6 +130,7 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 		}
 
 		if channelNode := m.guildsTree.findNodeByReference(message.ChannelID); channelNode != nil {
+			m.guildsTree.updateChannelNodeText(*channel)
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
 		}
 
@@ -288,6 +289,7 @@ func (m *Model) onReadUpdate(event *read.UpdateEvent) {
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.unreadStyle(indication))
 			return
 		}
+		m.guildsTree.updateChannelNodeText(*channel)
 		m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
 	}
 }

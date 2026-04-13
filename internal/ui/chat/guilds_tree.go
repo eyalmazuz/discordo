@@ -327,6 +327,11 @@ func (gt *guildsTree) clearDMAlert(channelID discord.ChannelID) {
 			break
 		}
 	}
+	if gt.chat != nil && gt.chat.state != nil {
+		if channel, err := gt.chat.state.Cabinet.Channel(channelID); err == nil {
+			gt.updateChannelNodeText(*channel)
+		}
+	}
 	gt.rebuildDMAlertSection()
 }
 
@@ -435,7 +440,9 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 		name = ui.ChannelToString(channel, gt.cfg.Icons, gt.chat.state)
 	}
 
-	channelNode := tview.NewTreeNode(name).SetReference(channel.ID)
+	channelNode := tview.NewTreeNode("").SetReference(channel.ID)
+	gt.channelNodeByID[channel.ID] = channelNode
+	gt.updateChannelNodeText(channel)
 	gt.setNodeLineStyle(channelNode, gt.channelNodeStyle(channel))
 	switch channel.Type {
 	case discord.DirectMessage:
@@ -456,6 +463,33 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 	}
 	node.AddChild(channelNode)
 	gt.channelNodeByID[channel.ID] = channelNode
+}
+
+func (gt *guildsTree) updateChannelNodeText(channel discord.Channel) {
+	node := gt.channelNodeByID[channel.ID]
+	if node == nil || gt == nil || gt.chat == nil || gt.chat.state == nil {
+		return
+	}
+
+	label := channel.Name
+	if label == "" && channel.Type == discord.DirectMessage && len(channel.DMRecipients) == 1 {
+		label = channel.DMRecipients[0].Username
+	}
+	label = ui.ChannelToString(channel, gt.cfg.Icons, gt.chat.state)
+
+	if channel.Type == discord.DirectMessage || channel.Type == discord.GroupDM {
+		if count := gt.dmAlertCounts[channel.ID]; count > 0 {
+			label = fmt.Sprintf("%s (%d)", label, count)
+		}
+	}
+
+	line := node.GetLine()
+	if len(line) > 0 {
+		line[0].Text = label
+		node.SetLine(line)
+	} else {
+		node.SetLine(tview.NewLine(tview.NewSegment(label, tcell.StyleDefault)))
+	}
 }
 
 func (gt *guildsTree) setNodeLineStyle(node *tview.TreeNode, style tcell.Style) {
