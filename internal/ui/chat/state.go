@@ -42,16 +42,11 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 		ClearChildren().
 		AddChild(dmNode)
 
-	// Initialize DM alerts from ReadStates
-	for _, ch := range event.PrivateChannels {
-		for _, rs := range event.ReadStates {
-			if rs.ChannelID == ch.ID && ch.LastMessageID > rs.LastMessageID {
-				m.guildsTree.addDMAlert(ch.ID)
-				break
-			}
-		}
+	privateChannels, err := m.state.Cabinet.PrivateChannels()
+	if err != nil || len(privateChannels) == 0 {
+		privateChannels = event.PrivateChannels
 	}
-	m.guildsTree.rebuildDMAlertSection()
+	m.guildsTree.syncDMAlerts(privateChannels)
 
 	// Track guilds already in folders to find orphans.
 	// Newly joined guilds may not be synced to GuildFolders yet but always appear in guild positions.
@@ -124,8 +119,14 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 			m.guildsTree.reorderDMChannel(message.ChannelID)
 
 			me, _ := m.state.Cabinet.Me()
-			if (me == nil || message.Author.ID != me.ID) && !isCurrentChannel {
-				m.guildsTree.addDMAlert(message.ChannelID)
+			shouldTrackUnread := !isCurrentChannel || !m.appFocused
+			if (me == nil || message.Author.ID != me.ID) && shouldTrackUnread {
+				opts := ningen.UnreadOpts{IncludeMutedCategories: true}
+				if channelUnreadIndicationByID(m.state, message.ChannelID, opts) == ningen.ChannelRead {
+					m.guildsTree.addDMAlert(message.ChannelID)
+				} else {
+					m.guildsTree.syncDMAlert(message.ChannelID)
+				}
 			}
 		}
 
@@ -276,16 +277,12 @@ func (m *Model) onReadUpdate(event *read.UpdateEvent) {
 	// whether it's in a guild or DM.
 	channel, err := m.state.Cabinet.Channel(event.ChannelID)
 	if err == nil && !channel.GuildID.IsValid() {
-		if m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true}) == ningen.ChannelRead {
-			m.guildsTree.clearDMAlert(event.ChannelID)
-		} else if event.MentionCount > 0 {
-			m.guildsTree.setDMAlertCount(event.ChannelID, event.MentionCount)
-		}
+		m.guildsTree.syncDMAlert(event.ChannelID)
 	}
 
 	if channelNode := m.guildsTree.findNodeByReference(event.ChannelID); channelNode != nil {
 		if err != nil {
-			indication := m.state.ChannelIsUnread(event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true})
+			indication := channelUnreadIndicationByID(m.state, event.ChannelID, ningen.UnreadOpts{IncludeMutedCategories: true})
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.unreadStyle(indication))
 			return
 		}

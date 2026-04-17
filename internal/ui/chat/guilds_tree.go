@@ -174,7 +174,13 @@ func (gt *guildsTree) resetNodeIndex() {
 	clear(gt.guildNodeByID)
 	clear(gt.channelNodeByID)
 	gt.dmRootNode = nil
+	gt.resetDMAlertState()
+}
+
+func (gt *guildsTree) resetDMAlertState() {
 	clear(gt.dmAlertNodeByID)
+	gt.dmAlertOrder = gt.dmAlertOrder[:0]
+	clear(gt.dmAlertCounts)
 	gt.dmAlertSepNode = nil
 }
 
@@ -293,6 +299,69 @@ func (gt *guildsTree) setDMAlertCount(channelID discord.ChannelID, count int) {
 	gt.rebuildDMAlertSection()
 }
 
+func (gt *guildsTree) dmUnreadCount(channelID discord.ChannelID) int {
+	if gt == nil || gt.chat == nil || gt.chat.state == nil || channelID == 0 {
+		return 0
+	}
+
+	opts := ningen.UnreadOpts{IncludeMutedCategories: true}
+	channel, err := gt.chat.state.Cabinet.Channel(channelID)
+	if err != nil {
+		return 0
+	}
+	if channelUnreadIndication(gt.chat.state, *channel, opts) == ningen.ChannelRead {
+		return 0
+	}
+
+	count := channelUnreadCount(gt.chat.state, *channel, opts)
+	if count <= 0 {
+		count = 1
+	}
+	return count
+}
+
+func (gt *guildsTree) syncDMAlert(channelID discord.ChannelID) {
+	if gt == nil || gt.chat == nil || gt.chat.state == nil || channelID == 0 {
+		return
+	}
+
+	channel, err := gt.chat.state.Cabinet.Channel(channelID)
+	if err != nil || channel.GuildID.IsValid() {
+		gt.clearDMAlert(channelID)
+		return
+	}
+
+	if count := gt.dmUnreadCount(channelID); count > 0 {
+		gt.setDMAlertCount(channelID, count)
+		return
+	}
+
+	gt.clearDMAlert(channelID)
+}
+
+func (gt *guildsTree) syncDMAlerts(channels []discord.Channel) {
+	gt.resetDMAlertState()
+
+	if gt == nil || gt.chat == nil || gt.chat.state == nil {
+		gt.rebuildDMAlertSection()
+		return
+	}
+
+	ordered := append([]discord.Channel(nil), channels...)
+	ui.SortPrivateChannels(ordered)
+	for _, channel := range ordered {
+		if channel.GuildID.IsValid() {
+			continue
+		}
+		if count := gt.dmUnreadCount(channel.ID); count > 0 {
+			gt.dmAlertOrder = append(gt.dmAlertOrder, channel.ID)
+			gt.dmAlertCounts[channel.ID] = count
+		}
+	}
+
+	gt.rebuildDMAlertSection()
+}
+
 func (gt *guildsTree) reorderDMChannel(channelID discord.ChannelID) {
 	if gt.dmRootNode == nil || !gt.dmRootNode.IsExpanded() {
 		return
@@ -382,7 +451,7 @@ func (gt *guildsTree) channelNodeStyle(channel discord.Channel) tcell.Style {
 	if gt == nil || gt.chat == nil || gt.chat.state == nil {
 		return tcell.StyleDefault
 	}
-	unread := gt.unreadStyle(gt.chat.state.ChannelIsUnread(channel.ID, ningen.UnreadOpts{IncludeMutedCategories: true}))
+	unread := gt.unreadStyle(channelUnreadIndication(gt.chat.state, channel, ningen.UnreadOpts{IncludeMutedCategories: true}))
 	if channel.Type != discord.DirectMessage || len(channel.DMRecipients) != 1 {
 		return unread
 	}

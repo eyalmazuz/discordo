@@ -251,6 +251,31 @@ func TestGuildsTreeDMAlerts(t *testing.T) {
 	}
 }
 
+func TestGuildsTreeResetNodeIndexClearsDMAlerts(t *testing.T) {
+	m := newTestModel()
+	gt := m.guildsTree
+
+	gt.dmRootNode = tview.NewTreeNode("Direct Messages").SetReference(dmNode{})
+	gt.guildNodeByID[1] = tview.NewTreeNode("guild")
+	gt.channelNodeByID[2] = tview.NewTreeNode("channel")
+	gt.addDMAlert(3)
+
+	gt.resetNodeIndex()
+
+	if gt.dmRootNode != nil {
+		t.Fatal("expected resetNodeIndex to clear the DM root pointer")
+	}
+	if len(gt.guildNodeByID) != 0 || len(gt.channelNodeByID) != 0 {
+		t.Fatal("expected resetNodeIndex to clear indexed tree nodes")
+	}
+	if len(gt.dmAlertCounts) != 0 || len(gt.dmAlertOrder) != 0 || len(gt.dmAlertNodeByID) != 0 {
+		t.Fatal("expected resetNodeIndex to clear DM alert state")
+	}
+	if gt.dmAlertSepNode != nil {
+		t.Fatal("expected resetNodeIndex to clear the DM alert separator")
+	}
+}
+
 func TestGuildsTreeYankIDBranches(t *testing.T) {
 	gt := newGuildsTree(newMockChatModel().cfg, nil)
 	copied := stubClipboardWrite(t)
