@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/eyalmazuz/tview/layers"
+	"github.com/ayn2op/tview/layers"
 
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
@@ -26,6 +26,10 @@ import (
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/help"
+	"github.com/ayn2op/tview/keybind"
+	"github.com/ayn2op/tview/list"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
@@ -33,10 +37,6 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/json/option"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3/discordmd"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/color"
 	"github.com/rivo/uniseg"
@@ -168,7 +168,6 @@ func newMessagesList(cfg *config.Config, chat *Model) *messagesList {
 	ml.SetBuilder(ml.buildItem)
 	ml.SetChangedFunc(ml.onRowCursorChanged)
 	ml.SetTrackEnd(true)
-	ml.SetAlignBottom(true)
 	ml.SetKeybinds(list.Keybinds{
 		ScrollUp:     cfg.Keybinds.MessagesList.ScrollUp.Keybind,
 		ScrollDown:   cfg.Keybinds.MessagesList.ScrollDown.Keybind,
@@ -268,18 +267,6 @@ func (ml *messagesList) Draw(screen tcell.Screen) {
 
 	ml.Model.View(screen)
 
-	// Auto-fetch older messages if screen is not full at the top.
-	if !ml.fetchingOlder && !ml.reachedBeginning && len(ml.messages) > 0 && ml.FirstItemRow() > 0 {
-		slog.Debug("auto-fetching older messages to fill screen", "first_row", ml.FirstItemRow(), "msg_count", len(ml.messages))
-		cmd := ml.fetchOlderMessages()
-		if cmd != nil {
-			go func() {
-				if msg := cmd(); msg != nil {
-					ml.chat.QueueMsg(msg)
-				}
-			}()		}
-	}
-
 	ml.scanAndDrawEmotes(screen)
 
 	// Collect off-screen images for deletion in AfterDraw.
@@ -336,7 +323,7 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 				// Trigger async download so the emote image actually loads.
 				ml.imageCache.Request(url, 0, 0, func() {
 					if ml.chat != nil && ml.chat.app != nil {
-						triggerRedraw(ml.chat.app)
+						triggerRedraw(ml.chat)
 					}
 				})
 			}
@@ -542,7 +529,7 @@ func (ml *messagesList) queueAnimatedDraw() {
 	if ml.chat == nil || ml.chat.app == nil {
 		return
 	}
-	triggerRedraw(ml.chat.app)
+	triggerRedraw(ml.chat)
 }
 
 func resolveKittyMode(renderer string) bool {
@@ -696,7 +683,7 @@ func (ml *messagesList) buildImageItem(row messagesListRow) *imageItem {
 
 	// Request async download if not already cached.
 	ml.imageCache.Request(url, cfg.MaxFileSize, a.Size, func() {
-		triggerRedraw(ml.chat.app)
+		triggerRedraw(ml.chat)
 	})
 
 	return item
@@ -745,7 +732,7 @@ func (ml *messagesList) buildEmbedImageItem(row messagesListRow) *imageItem {
 
 	// Request async download if not already cached.
 	ml.imageCache.Request(url, cfg.MaxFileSize, 0, func() {
-		triggerRedraw(ml.chat.app)
+		triggerRedraw(ml.chat)
 	})
 
 	return item
@@ -784,7 +771,7 @@ func (ml *messagesList) buildStickerItem(row messagesListRow) *imageItem {
 
 	// Stickers don't have a size field in StickerItem, so we use 0 (unlimited for now or we can pick a sensible default).
 	ml.imageCache.Request(url, cfg.MaxFileSize, 0, func() {
-		triggerRedraw(ml.chat.app)
+		triggerRedraw(ml.chat)
 	})
 
 	return item
@@ -1332,7 +1319,7 @@ func (ml *messagesList) drawReactions(builder *tview.LineBuilder, message discor
 			if ml.imageCache != nil {
 				ml.imageCache.Request(url, 0, 0, func() {
 					if ml.chat != nil && ml.chat.app != nil {
-						triggerRedraw(ml.chat.app)
+						triggerRedraw(ml.chat)
 					}
 				})
 			}
@@ -1659,7 +1646,7 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 				return nil
 			}
 		}
-	case *tview.KeyMsg:
+	case tview.KeyMsg:
 		switch {
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Cancel.Keybind):
 			ml.clearSelection()
@@ -1689,8 +1676,7 @@ func (ml *messagesList) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.React.Keybind) || (msg.Key() == tcell.KeyRune && msg.Str() == "+"):
 			return ml.showReactionPicker()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Pin.Keybind):
-			ml.confirmPin()
-			return nil
+			return ml.confirmPin()
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.Reply.Keybind):
 			return ml.reply(false)
 		case keybind.Matches(msg, ml.cfg.Keybinds.MessagesList.ReplyMention.Keybind):
@@ -2372,15 +2358,15 @@ func (ml *messagesList) setMessagePinned(channelID discord.ChannelID, messageID 
 	delete(ml.itemByID, messageID)
 }
 
-func (ml *messagesList) confirmPin() {
+func (ml *messagesList) confirmPin() tview.Cmd {
 	message, err := ml.selectedMessage()
 	if err != nil {
 		slog.Error("failed to get selected message", "err", err)
-		return
+		return nil
 	}
 	if !ml.canPinMessage(message) {
 		slog.Error("failed to pin message; missing relevant permissions", "channel_id", message.ChannelID, "message_id", message.ID)
-		return
+		return nil
 	}
 
 	onChoice := func(choice string) {
@@ -2389,7 +2375,7 @@ func (ml *messagesList) confirmPin() {
 		}
 	}
 
-	ml.chat.showPinConfirmDialog(ml.renderMessage(*message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false), onChoice)
+	return ml.chat.showPinConfirmDialog(ml.renderMessage(*message, ml.cfg.Theme.MessagesList.SelectedMessageStyle.Style, false), onChoice)
 }
 
 func (ml *messagesList) pin() {

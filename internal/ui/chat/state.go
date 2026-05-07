@@ -135,6 +135,27 @@ func (m *Model) onMessageUpdate(message *gateway.MessageUpdateEvent) {
 	}
 }
 
+func (m *Model) onMessageReaction(channelID discord.ChannelID, messageID discord.MessageID) {
+	selectedChannel := m.SelectedChannel()
+	if selectedChannel == nil || selectedChannel.ID != channelID {
+		return
+	}
+
+	index := slices.IndexFunc(m.messagesList.messages, func(m discord.Message) bool {
+		return m.ID == messageID
+	})
+	if index < 0 {
+		return
+	}
+
+	cached, err := m.state.Cabinet.MessageStore.Message(channelID, messageID)
+	if err != nil || cached == nil {
+		delete(m.messagesList.itemByID, messageID)
+		return
+	}
+	m.messagesList.setMessage(index, *cached)
+}
+
 func (m *Model) onMessageDelete(message *gateway.MessageDeleteEvent) {
 	selectedChannel := m.SelectedChannel()
 	if selectedChannel == nil {

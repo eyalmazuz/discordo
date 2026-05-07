@@ -8,13 +8,13 @@ import (
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/flex"
+	"github.com/ayn2op/tview/help"
+	"github.com/ayn2op/tview/keybind"
+	"github.com/ayn2op/tview/list"
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/flex"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/list"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -25,7 +25,7 @@ type messageSearchResult struct {
 type messageSearchPopup struct {
 	*flex.Model
 	cfg          *config.Config
-	chat     *Model
+	chat         *Model
 	messagesList *messagesList
 	input        *tview.InputField
 	list         *list.Model
@@ -49,7 +49,7 @@ func newMessageSearchPopup(cfg *config.Config, chat *Model, messagesList *messag
 	sp := &messageSearchPopup{
 		Model:        flex.NewModel(),
 		cfg:          cfg,
-		chat:     chat,
+		chat:         chat,
 		messagesList: messagesList,
 		input:        tview.NewInputField(),
 		list:         list.NewModel(),
@@ -103,10 +103,8 @@ func (sp *messageSearchPopup) Prepare(channel discord.Channel, previousFocus tvi
 	sp.resetPrompt()
 }
 
-func (sp *messageSearchPopup) FocusInput() {
-	if sp.chat != nil && sp.chat.app != nil {
-		sendFocus(sp.chat.app, sp.input)
-	}
+func (sp *messageSearchPopup) FocusInput() tview.Cmd {
+	return tview.SetFocus(sp.input)
 }
 
 func (sp *messageSearchPopup) ShortHelp() []keybind.Keybind {
@@ -124,17 +122,15 @@ func (sp *messageSearchPopup) FullHelp() [][]keybind.Keybind {
 
 func (sp *messageSearchPopup) Update(msg tview.Msg) tview.Cmd {
 	switch msg := msg.(type) {
-	case *tview.KeyMsg:
+	case tview.KeyMsg:
 		keys := sp.cfg.Keybinds.Picker
 
 		switch {
 		case keybind.Matches(msg, keys.ToggleFocus.Keybind):
 			if sp.input.HasFocus() {
-				sendFocus(sp.chat.app, sp.list)
-			} else {
-				sendFocus(sp.chat.app, sp.input)
+				return tview.SetFocus(sp.list)
 			}
-			return nil
+			return tview.SetFocus(sp.input)
 		case keybind.Matches(msg, keys.Up.Keybind):
 			sp.list.Update(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
 			return nil
@@ -151,12 +147,11 @@ func (sp *messageSearchPopup) Update(msg tview.Msg) tview.Cmd {
 			if sp.input.HasFocus() {
 				sp.search()
 			} else {
-				sp.selectCurrent()
+				return sp.selectCurrent()
 			}
 			return nil
 		case keybind.Matches(msg, keys.Cancel.Keybind):
-			sp.close(sp.previousFocus)
-			return nil
+			return sp.close(sp.previousFocus)
 		}
 
 		if sp.list.HasFocus() && msg.Key() == tcell.KeyRune {
@@ -296,10 +291,10 @@ func pickSearchResultMessage(group []discord.Message, channel discord.Channel, q
 	return *fallback, true
 }
 
-func (sp *messageSearchPopup) selectCurrent() {
+func (sp *messageSearchPopup) selectCurrent() tview.Cmd {
 	cursor := sp.list.Cursor()
 	if cursor < 0 || cursor >= len(sp.results) {
-		return
+		return nil
 	}
 
 	result := sp.results[cursor]
@@ -311,21 +306,22 @@ func (sp *messageSearchPopup) selectCurrent() {
 	}
 	if err := jump(sp.channel, result.Message.ID); err != nil {
 		slog.Error("failed to jump to message", "channel_id", sp.channel.ID, "message_id", result.Message.ID, "err", err)
-		return
+		return nil
 	}
 
-	sp.close(sp.messagesList)
+	return sp.close(sp.messagesList)
 }
 
-func (sp *messageSearchPopup) close(nextFocus tview.Model) {
+func (sp *messageSearchPopup) close(nextFocus tview.Model) tview.Cmd {
 	sp.activeSearchToken.Add(1)
 	if sp.chat != nil && sp.chat.HasLayer(messageSearchLayerName) {
 		sp.chat.RemoveLayer(messageSearchLayerName)
 	}
-	if sp.chat != nil && sp.chat.app != nil && nextFocus != nil {
-		sendFocus(sp.chat.app, nextFocus)
-	}
 	sp.previousFocus = nil
+	if nextFocus != nil {
+		return tview.SetFocus(nextFocus)
+	}
+	return nil
 }
 
 func (sp *messageSearchPopup) enqueueUpdateDraw(f func()) {
@@ -337,7 +333,7 @@ func (sp *messageSearchPopup) enqueueUpdateDraw(f func()) {
 		return
 	}
 	f()
-	triggerRedraw(sp.chat.app)
+	triggerRedraw(sp.chat)
 }
 
 func (sp *messageSearchPopup) onInputChanged(text string) {

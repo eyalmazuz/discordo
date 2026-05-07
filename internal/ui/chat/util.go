@@ -6,9 +6,9 @@ import (
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/list"
-	"github.com/eyalmazuz/tview/picker"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/list"
+	"github.com/ayn2op/tview/picker"
 )
 
 var clipboardWrite = clipboard.Write

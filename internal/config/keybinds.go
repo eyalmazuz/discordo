@@ -2,7 +2,7 @@ package config
 
 import (
 	"github.com/BurntSushi/toml"
-	"github.com/eyalmazuz/tview/keybind"
+	"github.com/ayn2op/tview/keybind"
 )
 
 type Keybind struct {
@@ -74,6 +74,7 @@ type GuildsTreeKeybinds struct {
 	ToggleExpand  Keybind `toml:"toggle_expand"`
 	YankID        Keybind `toml:"yank_id"`
 
+	CollapseAll        Keybind `toml:"collapse_all"`
 	CollapseParentNode Keybind `toml:"collapse_parent_node"`
 	MoveToParentNode   Keybind `toml:"move_to_parent_node"`
 }
@@ -168,6 +169,7 @@ func defaultGuildsTreeKeybinds() GuildsTreeKeybinds {
 		SelectCurrent:      newKeybind("enter", "sel"),
 		ToggleExpand:       newKeybind("space", "expand"),
 		YankID:             newKeybind("i", "copy id"),
+		CollapseAll:        newKeybind("_", "collapse all"),
 		CollapseParentNode: newKeybind("-", "collapse"),
 		MoveToParentNode:   newKeybind("p", "parent"),
 	}

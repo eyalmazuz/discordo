@@ -3,9 +3,9 @@ package chat
 import (
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/flex"
-	"github.com/eyalmazuz/tview/layers"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/flex"
+	"github.com/ayn2op/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -114,7 +114,7 @@ func (d *messageConfirmDialog) Update(msg tview.Msg) tview.Cmd {
 	return d.form.Update(msg)
 }
 
-func (v *Model) showMessageConfirmDialog(prompt string, helper string, previewLines []tview.Line, onDone func(label string)) {
+func (v *Model) showMessageConfirmDialog(prompt string, helper string, previewLines []tview.Line, onDone func(label string)) tview.Cmd {
 	v.confirmModalPreviousFocus = v.app.Focused()
 	v.confirmModalDone = onDone
 
@@ -128,9 +128,9 @@ func (v *Model) showMessageConfirmDialog(prompt string, helper string, previewLi
 			layers.WithOverlay(),
 		).
 		SendToFront(confirmModalLayerName)
-	sendFocus(v.app, dialog)
+	return tview.SetFocus(dialog)
 }
 
-func (v *Model) showPinConfirmDialog(previewLines []tview.Line, onDone func(label string)) {
-	v.showMessageConfirmDialog(pinConfirmPrompt, pinConfirmHelper, previewLines, onDone)
+func (v *Model) showPinConfirmDialog(previewLines []tview.Line, onDone func(label string)) tview.Cmd {
+	return v.showMessageConfirmDialog(pinConfirmPrompt, pinConfirmHelper, previewLines, onDone)
 }

@@ -3,8 +3,8 @@ package config
 import (
 	"errors"
 
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/list"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/list"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -205,24 +205,14 @@ type (
 	}
 
 	GuildsTreeTheme struct {
-		AutoExpandFolders bool              `toml:"auto_expand_folders"`
-		Graphics          bool              `toml:"graphics"`
-		GraphicsColor     string            `toml:"graphics_color"`
-		Indents           GuildsTreeIndents `toml:"indents"`
+		AutoExpandFolders bool   `toml:"auto_expand_folders"`
+		Graphics          bool   `toml:"graphics"`
+		GraphicsColor     string `toml:"graphics_color"`
 
 		OnlineStyle  StyleWrapper `toml:"online_style"`
 		IdleStyle    StyleWrapper `toml:"idle_style"`
 		DNDStyle     StyleWrapper `toml:"dnd_style"`
 		OfflineStyle StyleWrapper `toml:"offline_style"`
-	}
-
-	GuildsTreeIndents struct {
-		Guild    int `toml:"guild"`
-		Category int `toml:"category"`
-		Channel  int `toml:"channel"`
-		Forum    int `toml:"forum"`
-		GroupDM  int `toml:"group_dm"`
-		DM       int `toml:"dm"`
 	}
 
 	MessagesListTheme struct {

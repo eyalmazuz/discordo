@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/eyalmazuz/tview"
+	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 )
 
@@ -45,6 +45,11 @@ func NewAsyncUpdateMsg() AsyncUpdateMsg {
 func (m *Model) listenAsync() tview.Cmd {
 	return func() tview.Msg {
 		<-m.asyncUpdates
+		select {
+		case msg := <-m.asyncMsgs:
+			return msg
+		default:
+		}
 		return NewAsyncUpdateMsg()
 	}
 }

@@ -9,8 +9,8 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/ayn2op/tview"
 	"github.com/diamondburned/ningen/v3/discordmd"
-	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"github.com/yuin/goldmark/ast"
 )

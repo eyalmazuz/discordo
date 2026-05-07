@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/http"
 	"github.com/ayn2op/discordo/internal/notifications"
 	"github.com/ayn2op/discordo/internal/ui"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/flex"
+	"github.com/ayn2op/tview/keybind"
+	"github.com/ayn2op/tview/layers"
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/session"
@@ -23,10 +25,6 @@ import (
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/diamondburned/ningen/v3"
 	"github.com/diamondburned/ningen/v3/states/read"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/flex"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/layers"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -44,7 +42,6 @@ var (
 
 type redrawMsg struct{ tcell.EventTime }
 
-
 type closeLayerEvent struct {
 	tcell.EventTime
 	name string
@@ -54,28 +51,10 @@ func (m *redrawMsg) When() time.Time { return m.EventTime.When() }
 
 var typingAfterFunc = time.AfterFunc
 
-func triggerRedraw(app *tview.Application) {
-	if app != nil {
-		go app.Send(&redrawMsg{})
+func triggerRedraw(chat *Model) {
+	if chat != nil {
+		chat.QueueMsg(&redrawMsg{})
 	}
-}
-
-func sendFocus(app *tview.Application, target tview.Model) {
-	if app == nil || target == nil {
-		return
-	}
-	appValue := reflect.ValueOf(app).Elem()
-	focusField := appValue.FieldByName("focus")
-	current := reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem()
-	if current.IsValid() && !current.IsNil() {
-		if focused, ok := current.Interface().(tview.Model); ok && focused != nil {
-			focused.Blur()
-		}
-	}
-	reflect.NewAt(focusField.Type(), unsafe.Pointer(focusField.UnsafeAddr())).Elem().Set(reflect.ValueOf(target))
-	target.Focus(func(next tview.Model) {
-		sendFocus(app, next)
-	})
 }
 
 const typingDuration = 10 * time.Second
@@ -113,9 +92,10 @@ type Model struct {
 	confirmModalDone          func(label string)
 	confirmModalPreviousFocus tview.Model
 
-	state  *ningen.State
-	events chan gateway.Event
+	state        *ningen.State
+	events       chan gateway.Event
 	asyncUpdates chan struct{}
+	asyncMsgs    chan tview.Msg
 
 	typersMu sync.RWMutex
 	typers   map[discord.UserID]*time.Timer
@@ -159,9 +139,10 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 
 	m.state = newOpenState(token, id)
 
-	v.events = make(chan gateway.Event)
-	v.asyncUpdates = make(chan struct{}, 100)
-	v.state.AddHandler(v.events)
+	m.events = make(chan gateway.Event)
+	m.asyncUpdates = make(chan struct{}, 100)
+	m.asyncMsgs = make(chan tview.Msg, 100)
+	m.state.AddHandler(m.events)
 	m.state.StateLog = func(err error) {
 		slog.Error("state log", "err", err)
 	}
@@ -169,19 +150,6 @@ func NewModel(app *tview.Application, cfg *config.Config, token string) *Model {
 
 	m.SetBackgroundLayerStyle(m.cfg.Theme.Dialog.BackgroundStyle.Style)
 	m.buildLayout()
-	app.SetAfterDrawFunc(func(screen tcell.Screen) {
-		m.messagesList.AfterDraw(screen)
-		if m.messageInput != nil && m.messageInput.mentionsList != nil {
-			if afterDrawer, ok := any(m.messageInput.mentionsList).(interface{ AfterDraw(tcell.Screen) }); ok {
-				afterDrawer.AfterDraw(screen)
-			}
-		}
-		if m.messagesList != nil && m.messagesList.reactionPicker != nil {
-			if afterDrawer, ok := any(m.messagesList.reactionPicker).(interface{ AfterDraw(tcell.Screen) }); ok {
-				afterDrawer.AfterDraw(screen)
-			}
-		}
-	})
 	return m
 }
 
@@ -190,7 +158,7 @@ func (m *Model) QueueMsg(msg tview.Msg) {
 		return
 	}
 	select {
-	case m.msgs <- msg:
+	case m.asyncMsgs <- msg:
 		m.RequestAsyncUpdate()
 	default:
 	}
@@ -270,20 +238,19 @@ func (m *Model) hasPopupOverlay() bool {
 		m.GetVisible(confirmModalLayerName)
 }
 
-func (m *Model) openMessageSearch() {
+func (m *Model) openMessageSearch() tview.Cmd {
 	selected := m.SelectedChannel()
 	if selected == nil || m.messageSearch == nil {
-		return
+		return nil
 	}
 	if m.GetVisible(messageSearchLayerName) {
-		m.messageSearch.FocusInput()
-		return
+		return m.messageSearch.FocusInput()
 	}
 	if m.GetVisible(attachmentsPickerLayerName) ||
 		m.GetVisible(reactionPickerLayerName) ||
 		m.GetVisible(confirmModalLayerName) ||
 		m.GetVisible(channelsPickerLayerName) {
-		return
+		return nil
 	}
 
 	m.messageInput.removeMentionsList()
@@ -295,24 +262,23 @@ func (m *Model) openMessageSearch() {
 		layers.WithVisible(true),
 		layers.WithOverlay(),
 	).SendToFront(messageSearchLayerName)
-	m.messageSearch.FocusInput()
+	return m.messageSearch.FocusInput()
 }
 
-func (m *Model) openPinnedMessages() {
+func (m *Model) openPinnedMessages() tview.Cmd {
 	selected := m.SelectedChannel()
 	if selected == nil || m.pinnedMessages == nil {
-		return
+		return nil
 	}
 	if m.GetVisible(pinnedMessagesLayerName) {
-		m.pinnedMessages.FocusList()
-		return
+		return m.pinnedMessages.FocusList()
 	}
 	if m.GetVisible(attachmentsPickerLayerName) ||
 		m.GetVisible(reactionPickerLayerName) ||
 		m.GetVisible(confirmModalLayerName) ||
 		m.GetVisible(channelsPickerLayerName) ||
 		m.GetVisible(messageSearchLayerName) {
-		return
+		return nil
 	}
 
 	m.messageInput.removeMentionsList()
@@ -324,7 +290,7 @@ func (m *Model) openPinnedMessages() {
 		layers.WithVisible(true),
 		layers.WithOverlay(),
 	).SendToFront(pinnedMessagesLayerName)
-	m.pinnedMessages.FocusList()
+	return m.pinnedMessages.FocusList()
 }
 
 func (m *Model) toggleGuildsTree() tview.Cmd {
@@ -410,12 +376,14 @@ func (m *Model) RequestAsyncUpdate() {
 	}
 }
 
-func (v *Model) Update(msg tview.Msg) tview.Cmd {
+func (m *Model) Update(msg tview.Msg) tview.Cmd {
 	switch msg := msg.(type) {
 	case tview.InitMsg:
-		return tview.Batch(v.openState(), v.listen(), v.listenAsync())
+		return tview.Batch(m.openState(), m.listen(), m.listenAsync())
 	case AsyncUpdateMsg:
-		return v.listenAsync()
+		return m.listenAsync()
+	case *redrawMsg:
+		return nil
 	case gateway.Event:
 		switch eventMsg := msg.(type) {
 		case *ws.RawEvent:
@@ -463,17 +431,12 @@ func (v *Model) Update(msg tview.Msg) tview.Cmd {
 		switch ref := node.GetReference().(type) {
 		case discord.ChannelID:
 			channelID = ref
-		case dmAlertRef:
-			channelID = ref.channelID
 		}
 		if channelID != msg.Channel.ID {
 			return nil
 		}
 
 		m.SetSelectedChannel(&msg.Channel)
-		if !msg.Channel.GuildID.IsValid() {
-			m.guildsTree.clearDMAlert(msg.Channel.ID)
-		}
 		m.clearTypers()
 		m.messageInput.stopTypingTimer()
 
@@ -524,7 +487,7 @@ func (v *Model) Update(msg tview.Msg) tview.Cmd {
 			}
 			return focusCmd
 		}
-	case *tview.KeyMsg:
+	case tview.KeyMsg:
 		if m.GetVisible(mentionsListLayerName) {
 			return m.Layers.Update(msg)
 		}
@@ -552,11 +515,9 @@ func (v *Model) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, m.cfg.Keybinds.Logout.Keybind):
 			return tview.Batch(m.closeState(), m.logout())
 		case keybind.Matches(msg, m.cfg.Keybinds.ToggleMessageSearch.Keybind):
-			m.openMessageSearch()
-			return nil
+			return m.openMessageSearch()
 		case keybind.Matches(msg, m.cfg.Keybinds.TogglePinnedMessages.Keybind):
-			m.openPinnedMessages()
-			return nil
+			return m.openPinnedMessages()
 		case msg.Key() == tcell.KeyEscape:
 			if m.hasPopupOverlay() {
 				break

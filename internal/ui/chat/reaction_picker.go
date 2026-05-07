@@ -11,19 +11,19 @@ import (
 	httpkg "github.com/ayn2op/discordo/internal/http"
 	imgpkg "github.com/ayn2op/discordo/internal/image"
 	"github.com/ayn2op/discordo/internal/markdown"
+	"github.com/ayn2op/tview"
+	"github.com/ayn2op/tview/help"
+	"github.com/ayn2op/tview/keybind"
+	"github.com/ayn2op/tview/list"
+	"github.com/ayn2op/tview/picker"
 	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/eyalmazuz/tview"
-	"github.com/eyalmazuz/tview/help"
-	"github.com/eyalmazuz/tview/keybind"
-	"github.com/eyalmazuz/tview/list"
-	"github.com/eyalmazuz/tview/picker"
 	"github.com/gdamore/tcell/v3"
 )
 
 type reactionPicker struct {
 	*picker.Model
 	cfg          *config.Config
-	chat     *Model
+	chat         *Model
 	messagesList *messagesList
 
 	items []discord.Emoji
@@ -44,7 +44,7 @@ func newReactionPicker(cfg *config.Config, chat *Model, messagesList *messagesLi
 	rp := &reactionPicker{
 		Model:          picker.NewModel(),
 		cfg:            cfg,
-		chat:       chat,
+		chat:           chat,
 		messagesList:   messagesList,
 		imageCache:     imgpkg.NewCache(&http.Client{Transport: httpkg.NewTransport()}),
 		emoteItemByKey: make(map[string]*imageItem),
@@ -149,7 +149,7 @@ func (rp *reactionPicker) Draw(screen tcell.Screen) {
 	for _, item := range rp.emoteItemByKey {
 		item.drawnThisFrame = false
 	}
-	rp.Model.Draw(screen)
+	rp.Model.View(screen)
 }
 
 func (rp *reactionPicker) AfterDraw(screen tcell.Screen) {
@@ -208,10 +208,10 @@ func (rp *reactionPicker) refreshPreviewBuilder() {
 			preview:  rp.previewItemFor(ref, emoji),
 			useKitty: rp.useKitty,
 		}
-		})
-		}
+	})
+}
 
-		func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageItem {
+func (rp *reactionPicker) previewItemFor(index int, emoji discord.Emoji) *imageItem {
 
 	if !rp.cfg.InlineImages.Enabled {
 		return nil
@@ -238,9 +238,7 @@ func (rp *reactionPicker) refreshPreviewBuilder() {
 	}
 	rp.emoteItemByKey[key] = item
 	rp.imageCache.Request(url, 0, 0, func() {
-		if rp.chat != nil && rp.chat.app != nil {
-			triggerRedraw(rp.chat.app)
-		}
+		triggerRedraw(rp.chat)
 	})
 	return item
 }

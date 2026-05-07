@@ -3,7 +3,7 @@ package image
 import (
 	"image"
 
-	"github.com/eyalmazuz/tview"
+	"github.com/ayn2op/tview"
 	"github.com/gdamore/tcell/v3"
 	"golang.org/x/image/draw"
 )
@@ -41,7 +41,7 @@ func RenderHalfBlock(img image.Image, maxWidth, maxHeight int) []tview.Line {
 
 	for cy := 0; cy < cellRows; cy++ {
 		line := make(tview.Line, 0, newW)
-		py0 := cy * 2 // top pixel row
+		py0 := cy * 2  // top pixel row
 		py1 := py0 + 1 // bottom pixel row
 
 		for cx := 0; cx < newW; cx++ {

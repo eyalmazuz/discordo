@@ -3,9 +3,9 @@ package chat
 import (
 	"testing"
 
+	"github.com/ayn2op/tview/layers"
+	"github.com/ayn2op/tview/picker"
 	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/eyalmazuz/tview/layers"
-	"github.com/eyalmazuz/tview/picker"
 )
 
 func TestReactionPickerSetItemsAndHelp(t *testing.T) {
