@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/ayn2op/discordo/internal/clipboard"
 	"github.com/ayn2op/discordo/internal/config"
@@ -616,6 +617,14 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.Bottom.Keybind):
 			gt.Move(gt.GetRowCount())
 			return nil
+		case matchesToggleExpand(msg, gt.cfg.Keybinds.GuildsTree.ToggleExpand.Keybind):
+			if node := gt.GetCurrentNode(); node != nil {
+				if len(node.GetChildren()) == 0 {
+					return gt.onSelected(node)
+				}
+				node.SetExpanded(!node.IsExpanded())
+			}
+			return nil
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.SelectCurrent.Keybind):
 			return handler(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 		case keybind.Matches(msg, gt.cfg.Keybinds.GuildsTree.YankID.Keybind):
@@ -625,6 +634,16 @@ func (gt *guildsTree) Update(msg tview.Msg) tview.Cmd {
 		return nil
 	}
 	return gt.TreeView.Update(msg)
+}
+
+func matchesToggleExpand(msg keybind.KeyMsg, bind keybind.Keybind) bool {
+	if keybind.Matches(msg, bind) {
+		return true
+	}
+	return msg != nil &&
+		msg.Key() == tcell.KeyRune &&
+		msg.Str() == " " &&
+		slices.Contains(bind.Keys(), "space")
 }
 
 func (gt *guildsTree) yankID() tview.Cmd {
@@ -711,10 +730,15 @@ func (gt *guildsTree) ShortHelp() []keybind.Keybind {
 	selectDesc := selectHelp.Desc
 	if node := gt.GetCurrentNode(); node != nil {
 		if len(node.GetChildren()) > 0 {
-			if node.IsExpanded() {
-				selectDesc = "collapse"
-			} else {
-				selectDesc = "expand"
+			switch node.GetReference().(type) {
+			case discord.ChannelID:
+				selectDesc = "sel"
+			default:
+				if node.IsExpanded() {
+					selectDesc = "collapse"
+				} else {
+					selectDesc = "expand"
+				}
 			}
 		} else {
 			switch node.GetReference().(type) {
@@ -726,6 +750,16 @@ func (gt *guildsTree) ShortHelp() []keybind.Keybind {
 	selectCurrent.SetHelp(selectHelp.Key, selectDesc)
 
 	shortHelp := []keybind.Keybind{cfg.Up.Keybind, cfg.Down.Keybind, selectCurrent}
+	if node := gt.GetCurrentNode(); node != nil && len(node.GetChildren()) > 0 {
+		toggleExpand := cfg.ToggleExpand.Keybind
+		toggleHelp := toggleExpand.Help()
+		if node.IsExpanded() {
+			toggleExpand.SetHelp(toggleHelp.Key, "collapse")
+		} else {
+			toggleExpand.SetHelp(toggleHelp.Key, "expand")
+		}
+		shortHelp = append(shortHelp, toggleExpand)
+	}
 	if gt.canCollapseParent(gt.GetCurrentNode()) {
 		shortHelp = append(shortHelp, cfg.CollapseParentNode.Keybind)
 	}
@@ -739,10 +773,15 @@ func (gt *guildsTree) FullHelp() [][]keybind.Keybind {
 	selectDesc := selectHelp.Desc
 	if node := gt.GetCurrentNode(); node != nil {
 		if len(node.GetChildren()) > 0 {
-			if node.IsExpanded() {
-				selectDesc = "collapse"
-			} else {
-				selectDesc = "expand"
+			switch node.GetReference().(type) {
+			case discord.ChannelID:
+				selectDesc = "sel"
+			default:
+				if node.IsExpanded() {
+					selectDesc = "collapse"
+				} else {
+					selectDesc = "expand"
+				}
 			}
 		} else {
 			switch node.GetReference().(type) {
@@ -753,7 +792,7 @@ func (gt *guildsTree) FullHelp() [][]keybind.Keybind {
 	}
 	selectCurrent.SetHelp(selectHelp.Key, selectDesc)
 
-	selectGroup := []keybind.Keybind{selectCurrent, cfg.MoveToParentNode.Keybind}
+	selectGroup := []keybind.Keybind{selectCurrent, cfg.ToggleExpand.Keybind, cfg.MoveToParentNode.Keybind}
 	selectGroup = append(selectGroup, gt.collapseKeybinds()...)
 
 	return [][]keybind.Keybind{
