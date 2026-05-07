@@ -475,6 +475,8 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 			m.HideLayer(msg.name)
 		}
 		return nil
+	case tview.TreeViewSelectedMsg:
+		return m.guildsTree.Update(msg)
 	case *tview.ModalDoneMsg:
 		if m.HasLayer(confirmModalLayerName) {
 			m.RemoveLayer(confirmModalLayerName)

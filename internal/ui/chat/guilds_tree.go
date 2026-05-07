@@ -572,7 +572,7 @@ func (gt *guildsTree) loadChannel(channel discord.Channel) tview.Cmd {
 		if guildID := channel.GuildID; guildID.IsValid() {
 			gt.chat.messagesList.requestGuildMembers(guildID, messages)
 		}
-		return channelLoadedMsg{Channel: channel, Messages: messages}
+		return &channelLoadedMsg{Channel: channel, Messages: messages}
 	}
 }
 

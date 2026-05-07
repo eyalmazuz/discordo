@@ -5,6 +5,7 @@ import (
 
 	"github.com/ayn2op/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
+	"github.com/gdamore/tcell/v3"
 )
 
 func TestGuildsTreeThreadCapableChannelsAreExpandable(t *testing.T) {
@@ -48,6 +49,36 @@ func TestGuildsTreeSelectTextChannelHydratesThreadChildrenAndLoadsChannel(t *tes
 	}
 	if child := m.guildsTree.findNodeByReference(thread.ID); child == nil {
 		t.Fatal("expected selecting text channel to hydrate thread children")
+	}
+}
+
+func TestGuildsTreeEnterSelectsChannelThroughModel(t *testing.T) {
+	transport := &mockTransport{
+		messages: []discord.Message{{ID: 300, ChannelID: 100, Content: "hello"}},
+	}
+	m := newTestModelWithTransport(transport)
+	channel := discord.Channel{ID: 100, GuildID: 10, Type: discord.GuildText, Name: "text", LastMessageID: 300}
+	setViewPermissionForTest(m, channel)
+
+	node := tview.NewTreeNode("text").SetReference(channel.ID)
+	m.guildsTree.SetRoot(tview.NewTreeNode("").AddChild(node))
+	m.guildsTree.SetCurrentNode(node)
+
+	selectMsg := m.guildsTree.Update(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))()
+	loadCmd := m.Update(selectMsg)
+	if loadCmd == nil {
+		t.Fatal("expected model to turn tree selection into channel load command")
+	}
+	loadedMsg := loadCmd()
+	focusCmd := m.Update(loadedMsg)
+	execCmdForTest(m.app, focusCmd)
+
+	selected := m.SelectedChannel()
+	if selected == nil || selected.ID != channel.ID {
+		t.Fatalf("expected selected channel %d, got %#v", channel.ID, selected)
+	}
+	if got := len(m.messagesList.messages); got != 1 {
+		t.Fatalf("expected loaded messages to be applied, got %d", got)
 	}
 }
 
