@@ -39,6 +39,7 @@ func (c *Cache) Invalidate(name string, limit uint) {
 				c.items.Delete(name)
 				name = name[:len(name)-1]
 			}
+			return
 		}
 		name = name[:len(name)-1]
 	}
