@@ -9,8 +9,8 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/ayn2op/discordo/internal/config"
 	"github.com/ayn2op/discordo/internal/ui"
-	"github.com/ayn2op/tview"
 	"github.com/diamondburned/ningen/v3/discordmd"
+	"github.com/eyalmazuz/tview"
 	"github.com/gdamore/tcell/v3"
 	"github.com/yuin/goldmark/ast"
 )
@@ -18,19 +18,49 @@ import (
 type Renderer struct {
 	cfg *config.Config
 
-	listIx     *int
-	listNested int
+	HideSpoilers bool
+
+	listStack    []listState
+	listNested   int
+	inSpoiler    int
+	inBlockquote int
+}
+
+type listState struct {
+	ordered bool
+	next    int
+	bullet  string
 }
 
 const codeBlockIndent = "    "
+
+var (
+	tokeniseCodeBlock = func(lexer chroma.Lexer, code string) (chroma.Iterator, error) {
+		return lexer.Tokenise(nil, code)
+	}
+	getMarkdownTheme = styles.Get
+)
 
 func NewRenderer(cfg *config.Config) *Renderer {
 	return &Renderer{cfg: cfg}
 }
 
+func (r *Renderer) writeObscured(builder *tview.LineBuilder, text string, style tcell.Style) {
+	if r.HideSpoilers && r.inSpoiler > 0 {
+		var sb strings.Builder
+		for range text {
+			sb.WriteString("█")
+		}
+		text = sb.String()
+	}
+	builder.Write(text, style)
+}
+
 func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) []tview.Line {
-	r.listIx = nil
+	r.listStack = nil
 	r.listNested = 0
+	r.inSpoiler = 0
+	r.inBlockquote = 0
 
 	builder := tview.NewLineBuilder()
 	styleStack := []tcell.Style{base}
@@ -48,6 +78,13 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 		}
 	}
 
+	newLine := func() {
+		builder.NewLine()
+		if r.inBlockquote > 0 {
+			builder.Write(" ▎ ", currentStyle().Dim(true))
+		}
+	}
+
 	theme := r.cfg.Theme.MessagesList
 	_ = ast.Walk(node, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		switch node := node.(type) {
@@ -55,31 +92,51 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 			// noop
 		case *ast.Heading:
 			if entering {
-				builder.Write(strings.Repeat("#", node.Level)+" ", currentStyle())
+				pushStyle(headingStyle(currentStyle(), node.Level))
 			} else {
-				builder.NewLine()
+				popStyle()
+				newLine()
+			}
+		case *ast.Blockquote:
+			if entering {
+				if r.inBlockquote == 0 {
+					builder.NewLine()
+				} else {
+					newLine()
+				}
+				r.inBlockquote++
+				builder.Write(" ▎ ", currentStyle().Dim(true))
+				pushStyle(currentStyle().Dim(true))
+			} else {
+				r.inBlockquote--
+				popStyle()
+				if r.inBlockquote == 0 {
+					builder.NewLine()
+				} else {
+					newLine()
+				}
 			}
 		case *ast.Text:
 			if entering {
-				builder.Write(string(node.Segment.Value(source)), currentStyle())
+				r.renderTextWithEmojis(builder, string(node.Segment.Value(source)), currentStyle())
 				switch {
 				case node.HardLineBreak():
-					builder.NewLine()
-					builder.NewLine()
+					newLine()
+					newLine()
 				case node.SoftLineBreak():
-					builder.NewLine()
+					newLine()
 				}
 			}
 		case *ast.FencedCodeBlock:
 			if entering {
-				builder.NewLine()
-				r.renderFencedCodeBlock(builder, source, node, currentStyle())
+				newLine()
+				r.renderFencedCodeBlock(builder, source, node, currentStyle(), newLine)
 			}
 		case *ast.AutoLink:
 			if entering {
 				url := string(node.URL(source))
 				style := ui.MergeStyle(currentStyle(), theme.URLStyle.Style).Url(url)
-				builder.Write(url, style)
+				r.writeObscured(builder, url, style)
 			}
 		case *ast.Link:
 			if entering {
@@ -93,44 +150,65 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 				popStyle()
 			}
 		case *ast.List:
-			if node.IsOrdered() {
-				start := node.Start
-				r.listIx = &start
-			} else {
-				r.listIx = nil
-			}
-
 			if entering {
-				builder.NewLine()
+				newLine()
 				r.listNested++
+				state := listState{bullet: unorderedListBullet(node.Marker)}
+				if node.IsOrdered() {
+					state.ordered = true
+					state.next = node.Start
+				}
+				r.listStack = append(r.listStack, state)
 			} else {
 				r.listNested--
+				if len(r.listStack) > 0 {
+					r.listStack = r.listStack[:len(r.listStack)-1]
+				}
 			}
 		case *ast.ListItem:
 			if entering {
 				builder.Write(strings.Repeat("  ", r.listNested-1), currentStyle())
-				if r.listIx != nil {
-					builder.Write(strconv.Itoa(*r.listIx)+". ", currentStyle())
-					*r.listIx++
+				if state, ok := r.currentListState(); ok && state.ordered {
+					builder.Write(strconv.Itoa(state.next)+". ", currentStyle())
+					r.listStack[len(r.listStack)-1].next++
+				} else if ok {
+					builder.Write(state.bullet, currentStyle())
 				} else {
 					builder.Write("- ", currentStyle())
 				}
 			} else {
-				builder.NewLine()
+				newLine()
 			}
 		case *discordmd.Inline:
 			if entering {
+				if (node.Attr & discordmd.AttrSpoiler) != 0 {
+					r.inSpoiler++
+				}
 				pushStyle(applyInlineAttr(currentStyle(), node.Attr, linkDepth > 0))
 			} else {
+				if (node.Attr & discordmd.AttrSpoiler) != 0 {
+					r.inSpoiler--
+				}
 				popStyle()
 			}
 		case *discordmd.Mention:
 			if entering {
-				builder.Write(mentionText(node), ui.MergeStyle(currentStyle(), theme.MentionStyle.Style))
+				r.writeObscured(builder, mentionText(node), ui.MergeStyle(currentStyle(), theme.MentionStyle.Style))
 			}
 		case *discordmd.Emoji:
 			if entering {
-				builder.Write(":"+node.Name+":", ui.MergeStyle(currentStyle(), theme.EmojiStyle.Style))
+				style := ui.MergeStyle(currentStyle(), theme.EmojiStyle.Style)
+				if node.ID != "" {
+					style = style.Url(node.EmojiURL())
+					r.writeObscured(builder, CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
+					break
+				}
+				if r.cfg.InlineImages.Enabled {
+					style = style.Url(TwemojiURL(node.Name))
+					r.writeObscured(builder, CustomEmojiText(node.Name, r.cfg.InlineImages.Enabled), style)
+				} else {
+					r.writeObscured(builder, StandardEmoji(node.Name), style)
+				}
 			}
 		}
 		return ast.WalkContinue, nil
@@ -139,7 +217,34 @@ func (r *Renderer) RenderLines(source []byte, node ast.Node, base tcell.Style) [
 	return builder.Finish()
 }
 
-func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []byte, node *ast.FencedCodeBlock, base tcell.Style) {
+func (r *Renderer) currentListState() (listState, bool) {
+	if len(r.listStack) == 0 {
+		return listState{}, false
+	}
+	return r.listStack[len(r.listStack)-1], true
+}
+
+func headingStyle(style tcell.Style, level int) tcell.Style {
+	switch level {
+	case 1:
+		return style.Bold(true).Underline(true)
+	case 2:
+		return style.Bold(true)
+	case 3:
+		return style.Bold(true).Italic(true)
+	default:
+		return style.Bold(true)
+	}
+}
+
+func unorderedListBullet(marker byte) string {
+	if marker == '*' {
+		return "• "
+	}
+	return "- "
+}
+
+func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []byte, node *ast.FencedCodeBlock, base tcell.Style, newLine func()) {
 	var code strings.Builder
 	lines := node.Lines()
 	for i := range lines.Len() {
@@ -169,16 +274,16 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 	headerStyle := base.Dim(true)
 	if analyzed {
 		builder.Write(codeBlockIndent+"code: analyzed", headerStyle)
-		builder.NewLine()
+		newLine()
 	} else if language == "" {
 		builder.Write(codeBlockIndent+"code", headerStyle)
-		builder.NewLine()
+		newLine()
 	} else if !declaredLanguageSupported {
 		builder.Write(codeBlockIndent+"code: "+language, headerStyle)
-		builder.NewLine()
+		newLine()
 	}
 
-	iterator, err := lexer.Tokenise(nil, code.String())
+	iterator, err := tokeniseCodeBlock(lexer, code.String())
 	if err != nil {
 		for i := range lines.Len() {
 			line := lines.At(i)
@@ -187,7 +292,7 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 		return
 	}
 
-	theme := styles.Get(r.cfg.Markdown.Theme)
+	theme := getMarkdownTheme(r.cfg.Markdown.Theme)
 	if theme == nil {
 		theme = styles.Fallback
 	}
@@ -199,7 +304,7 @@ func (r *Renderer) renderFencedCodeBlock(builder *tview.LineBuilder, source []by
 		parts := strings.Split(token.Value, "\n")
 		for i, part := range parts {
 			if i > 0 {
-				builder.NewLine()
+				newLine()
 				builder.Write(codeBlockIndent, base)
 			}
 			if part != "" {
@@ -265,22 +370,57 @@ func mentionText(node *discordmd.Mention) string {
 }
 
 func applyInlineAttr(style tcell.Style, attr discordmd.Attribute, inLink bool) tcell.Style {
-	switch attr {
-	case discordmd.AttrBold:
-		return style.Bold(true)
-	case discordmd.AttrItalics:
-		return style.Italic(true)
-	case discordmd.AttrUnderline:
-		return style.Underline(true)
-	case discordmd.AttrStrikethrough:
-		return style.StrikeThrough(true)
-	case discordmd.AttrMonospace:
+	if attr.Has(discordmd.AttrBold) {
+		style = style.Bold(true)
+	}
+	if attr.Has(discordmd.AttrItalics) {
+		style = style.Italic(true)
+	}
+	if attr.Has(discordmd.AttrUnderline) {
+		style = style.Underline(true)
+	}
+	if attr.Has(discordmd.AttrStrikethrough) {
+		style = style.StrikeThrough(true)
+	}
+	if attr.Has(discordmd.AttrMonospace) {
 		// Avoid reverse-video inside links. Link labels like `hash` should still
 		// look like links, not highlighted blocks.
-		if inLink {
-			return style
+		if !inLink {
+			style = style.Reverse(true)
 		}
-		return style.Reverse(true)
 	}
 	return style
+}
+
+func (r *Renderer) renderTextWithEmojis(builder *tview.LineBuilder, text string, style tcell.Style) {
+	if !r.cfg.InlineImages.Enabled {
+		r.writeObscured(builder, text, style)
+		return
+	}
+
+	runes := []rune(text)
+	for i := 0; i < len(runes); {
+		found := false
+		// Try to match the longest emoji first (e.g. skin tones, ZWJ sequences)
+		// Standard emojis in emoji.json are mostly 1-2 runes, but some are more.
+		// Flag emojis are 2 runes.
+		for l := 12; l > 0; l-- {
+			if i+l > len(runes) {
+				continue
+			}
+			part := string(runes[i : i+l])
+			if _, ok := emojiToShortcode[normalizeEmoji(part)]; ok {
+				// Found an emoji!
+				r.writeObscured(builder, CustomEmojiText(part, true), style.Url(TwemojiURL(part)))
+				i += l
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			r.writeObscured(builder, string(runes[i]), style)
+			i++
+		}
+	}
 }

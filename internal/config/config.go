@@ -80,18 +80,19 @@ type (
 		Leaf      string `toml:"leaf"`
 	}
 
-	SidebarIndentsConfig struct {
-		Guild    int `toml:"guild"`
-		Category int `toml:"category"`
-		Channel  int `toml:"channel"`
-		Forum    int `toml:"forum"`
-		GroupDM  int `toml:"group_dm"`
-		DM       int `toml:"dm"`
-	}
-
 	SidebarConfig struct {
 		Markers SidebarMarkersConfig `toml:"markers"`
-		Indents SidebarIndentsConfig `toml:"indents"`
+	}
+
+	InlineImages struct {
+		Enabled         bool   `toml:"enabled"`
+		EmbedImages     bool   `toml:"embed_images"`
+		EmbedThumbnails bool   `toml:"embed_thumbnails"`
+		Animations      bool   `toml:"animations"`
+		MaxWidth        int    `toml:"max_width"`
+		MaxHeight       int    `toml:"max_height"`
+		MaxFileSize     int64  `toml:"max_file_size"`
+		Renderer        string `toml:"renderer"`
 	}
 
 	Config struct {
@@ -116,7 +117,8 @@ type (
 		TypingIndicator TypingIndicator `toml:"typing_indicator"`
 		Sidebar         SidebarConfig   `toml:"sidebar"`
 
-		Icons Icons `toml:"icons"`
+		Icons        Icons        `toml:"icons"`
+		InlineImages InlineImages `toml:"inline_images"`
 
 		Keybinds Keybinds `toml:"keybinds"`
 		Theme    Theme    `toml:"theme"`

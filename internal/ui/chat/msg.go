@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/ayn2op/tview"
+	"github.com/eyalmazuz/tview"
 	"github.com/diamondburned/arikawa/v3/discord"
 )
 
@@ -33,6 +33,19 @@ func (m *Model) closeState() tview.Cmd {
 func (m *Model) listen() tview.Cmd {
 	return func() tview.Msg {
 		return <-m.events
+	}
+}
+
+type AsyncUpdateMsg struct{}
+
+func NewAsyncUpdateMsg() AsyncUpdateMsg {
+	return AsyncUpdateMsg{}
+}
+
+func (m *Model) listenAsync() tview.Cmd {
+	return func() tview.Msg {
+		<-m.asyncUpdates
+		return NewAsyncUpdateMsg()
 	}
 }
 

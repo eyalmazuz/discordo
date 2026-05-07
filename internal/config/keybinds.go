@@ -2,7 +2,7 @@ package config
 
 import (
 	"github.com/BurntSushi/toml"
-	"github.com/ayn2op/tview/keybind"
+	"github.com/eyalmazuz/tview/keybind"
 )
 
 type Keybind struct {
@@ -63,16 +63,17 @@ type SelectionKeybinds struct {
 
 type PickerKeybinds struct {
 	NavigationKeybinds
-	Select Keybind `toml:"select"`
-	Cancel Keybind `toml:"cancel"`
+	Select      Keybind `toml:"select"`
+	Cancel      Keybind `toml:"cancel"`
+	ToggleFocus Keybind `toml:"toggle_focus"`
 }
 
 type GuildsTreeKeybinds struct {
 	NavigationKeybinds
 	SelectCurrent Keybind `toml:"select_current"`
+	ToggleExpand  Keybind `toml:"toggle_expand"`
 	YankID        Keybind `toml:"yank_id"`
 
-	CollapseAll        Keybind `toml:"collapse_all"`
 	CollapseParentNode Keybind `toml:"collapse_parent_node"`
 	MoveToParentNode   Keybind `toml:"move_to_parent_node"`
 }
@@ -84,6 +85,8 @@ type MessagesListKeybinds struct {
 	SelectReply  Keybind `toml:"select_reply"`
 	Reply        Keybind `toml:"reply"`
 	ReplyMention Keybind `toml:"reply_mention"`
+	React        Keybind `toml:"react"`
+	Pin          Keybind `toml:"pin"`
 
 	Cancel        Keybind `toml:"cancel"`
 	Edit          Keybind `toml:"edit"`
@@ -114,6 +117,8 @@ type MentionsListKeybinds struct {
 type Keybinds struct {
 	ToggleGuildsTree     Keybind `toml:"toggle_guilds_tree"`
 	ToggleChannelsPicker Keybind `toml:"toggle_channels_picker"`
+	ToggleMessageSearch  Keybind `toml:"toggle_message_search"`
+	TogglePinnedMessages Keybind `toml:"toggle_pinned_messages"`
 	ToggleHelp           Keybind `toml:"toggle_help"`
 	Suspend              Keybind `toml:"suspend"`
 
@@ -142,8 +147,9 @@ func defaultPickerKeybinds() PickerKeybinds {
 			Top:    newKeybind("home", "top"),
 			Bottom: newKeybind("end", "bottom"),
 		},
-		Cancel: newKeybind("esc", "cancel"),
-		Select: newKeybind("enter", "sel"),
+		Cancel:      newKeybind("esc", "cancel"),
+		Select:      newKeybind("enter", "sel"),
+		ToggleFocus: newKeybind("tab", "focus"),
 	}
 }
 
@@ -159,11 +165,10 @@ func defaultNavigationKeybinds() NavigationKeybinds {
 func defaultGuildsTreeKeybinds() GuildsTreeKeybinds {
 	return GuildsTreeKeybinds{
 		NavigationKeybinds: defaultNavigationKeybinds(),
-		SelectCurrent:      newKeybind("enter", "select"),
+		SelectCurrent:      newKeybind("enter", "sel"),
+		ToggleExpand:       newKeybind("space", "expand"),
 		YankID:             newKeybind("i", "copy id"),
-
-		CollapseAll:        newKeybind("_", "collapse all"),
-		CollapseParentNode: newKeybind("-", "collapse parent"),
+		CollapseParentNode: newKeybind("-", "collapse"),
 		MoveToParentNode:   newKeybind("p", "parent"),
 	}
 }
@@ -185,6 +190,8 @@ func defaultMessagesListKeybinds() MessagesListKeybinds {
 		SelectReply:  newKeybind("s", "sel reply"),
 		Reply:        newKeybind("R", "reply"),
 		ReplyMention: newKeybind("r", "@reply"),
+		React:        newKeybind("+", "react"),
+		Pin:          newKeybind("p", "pin"),
 		Cancel:       newKeybind("esc", "cancel"),
 		Edit:         newKeybind("e", "edit"),
 		Delete:       newKeybind("D", "force delete"),
@@ -226,6 +233,8 @@ func defaultKeybinds() Keybinds {
 	return Keybinds{
 		ToggleGuildsTree:     newKeybind("ctrl+b", "toggle guilds"),
 		ToggleChannelsPicker: newKeybind("ctrl+k", "channels picker"),
+		ToggleMessageSearch:  newKeybind("ctrl+f", "search"),
+		TogglePinnedMessages: newKeybind("ctrl+p", "pins"),
 		ToggleHelp:           newKeybind("ctrl+.", "help"),
 		Suspend:              newKeybind("ctrl+z", "suspend"),
 
