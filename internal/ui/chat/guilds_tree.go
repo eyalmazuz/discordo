@@ -341,7 +341,14 @@ func (gt *guildsTree) createGuildNode(n *tview.TreeNode, guild discord.Guild) {
 }
 
 func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Channel) {
-	if channel.Type != discord.DirectMessage && channel.Type != discord.GroupDM && channel.Type != discord.GuildCategory && !gt.chat.state.HasPermissions(channel.ID, discord.PermissionViewChannel) {
+	if gt.chat != nil && gt.chat.state != nil &&
+		channel.Type != discord.DirectMessage &&
+		channel.Type != discord.GroupDM &&
+		channel.Type != discord.GuildCategory &&
+		channel.Type != discord.GuildPublicThread &&
+		channel.Type != discord.GuildPrivateThread &&
+		channel.Type != discord.GuildAnnouncementThread &&
+		!gt.chat.state.HasPermissions(channel.ID, discord.PermissionViewChannel) {
 		return
 	}
 
@@ -360,6 +367,9 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 		channelNode.SetExpandable(true).SetExpanded(true)
 	case discord.GuildForum:
 		channelNode.SetIndent(indents.Forum)
+		channelNode.SetExpandable(true).SetExpanded(false)
+	case discord.GuildText, discord.GuildAnnouncement:
+		channelNode.SetIndent(indents.Channel)
 		channelNode.SetExpandable(true).SetExpanded(false)
 	default:
 		channelNode.SetIndent(indents.Channel)
@@ -437,8 +447,14 @@ func (gt *guildsTree) createChannelNodes(node *tview.TreeNode, channels []discor
 
 func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 	if len(node.GetChildren()) != 0 {
-		node.SetExpanded(!node.IsExpanded())
-		return nil
+		switch node.GetReference().(type) {
+		case discord.ChannelID:
+			// Text and forum channels may have thread children; selecting the
+			// channel should still enter it, while expansion remains available.
+		default:
+			node.SetExpanded(!node.IsExpanded())
+			return nil
+		}
 	}
 
 	switch ref := node.GetReference().(type) {
@@ -462,6 +478,28 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 			return nil
 		}
 
+		if channel.Type == discord.GuildCategory {
+			node.SetExpanded(!node.IsExpanded())
+			return nil
+		}
+
+		if channel.GuildID.IsValid() && (channel.Type == discord.GuildText || channel.Type == discord.GuildAnnouncement || channel.Type == discord.GuildForum) {
+			channels, err := gt.chat.state.Cabinet.Channels(channel.GuildID)
+			if err == nil {
+				for _, child := range channels {
+					if child.ParentID != channel.ID {
+						continue
+					}
+					switch child.Type {
+					case discord.GuildPublicThread, discord.GuildPrivateThread, discord.GuildAnnouncementThread:
+						if gt.findNodeByReference(child.ID) == nil {
+							gt.createChannelNode(node, child)
+						}
+					}
+				}
+			}
+		}
+
 		// Handle forum channels differently - they contain threads, not direct messages
 		if channel.Type == discord.GuildForum {
 			// Get all channels from the guild - this includes active threads from GuildCreateEvent
@@ -483,7 +521,9 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 
 			// Add threads as child nodes
 			for _, thread := range forumThreads {
-				gt.createChannelNode(node, thread)
+				if gt.findNodeByReference(thread.ID) == nil {
+					gt.createChannelNode(node, thread)
+				}
 			}
 			node.Expand()
 			return nil
