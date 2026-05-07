@@ -150,9 +150,14 @@ func (rp *reactionPicker) View(screen tcell.Screen) {
 		item.drawnThisFrame = false
 	}
 	rp.Model.View(screen)
+	rp.flushKitty(screen)
 }
 
 func (rp *reactionPicker) AfterDraw(screen tcell.Screen) {
+	rp.flushKitty(screen)
+}
+
+func (rp *reactionPicker) flushKitty(screen tcell.Screen) {
 	if !rp.cfg.InlineImages.Enabled || !rp.useKitty {
 		return
 	}

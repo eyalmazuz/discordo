@@ -131,9 +131,14 @@ func (m *mentionsList) View(screen tcell.Screen) {
 		item.drawnThisFrame = false
 	}
 	m.Model.View(screen)
+	m.flushKitty(screen)
 }
 
 func (m *mentionsList) AfterDraw(screen tcell.Screen) {
+	m.flushKitty(screen)
+}
+
+func (m *mentionsList) flushKitty(screen tcell.Screen) {
 	if !m.cfg.InlineImages.Enabled || !m.useKitty {
 		return
 	}

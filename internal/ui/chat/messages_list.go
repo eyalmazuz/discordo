@@ -269,7 +269,7 @@ func (ml *messagesList) View(screen tcell.Screen) {
 
 	ml.scanAndDrawEmotes(screen)
 
-	// Collect off-screen images for deletion in AfterDraw.
+	// Collect off-screen images for deletion before flushing Kitty operations.
 	if ml.cfg.InlineImages.Enabled && ml.useKitty {
 		for _, item := range ml.imageItemByKey {
 			if !item.drawnThisFrame && item.kittyPlaced {
@@ -293,6 +293,8 @@ func (ml *messagesList) View(screen tcell.Screen) {
 			}
 		}
 	}
+
+	ml.flushKitty(screen)
 }
 
 func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
@@ -347,9 +349,11 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 	}
 }
 
-// AfterDraw writes all pending Kitty protocol commands to the TTY.
-// Must be called AFTER screen.Show() to avoid corrupting tcell's output.
 func (ml *messagesList) AfterDraw(screen tcell.Screen) {
+	ml.flushKitty(screen)
+}
+
+func (ml *messagesList) flushKitty(screen tcell.Screen) {
 	if !ml.cfg.InlineImages.Enabled || !ml.useKitty {
 		return
 	}
