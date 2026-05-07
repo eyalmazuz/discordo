@@ -146,7 +146,7 @@ func (it *imageItem) Height(width int) int {
 	return min(max(cellH, 1), it.maxH)
 }
 
-func (it *imageItem) Draw(screen tcell.Screen) {
+func (it *imageItem) View(screen tcell.Screen) {
 	isEmote := it.maxW <= 2 && it.maxH == 1
 	if !isEmote {
 		it.Box.DrawForSubclass(screen, it)

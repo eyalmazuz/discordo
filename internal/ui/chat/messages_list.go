@@ -200,7 +200,7 @@ func (ml *messagesList) reset() {
 		SetTitle("")
 }
 
-func (ml *messagesList) Draw(screen tcell.Screen) {
+func (ml *messagesList) View(screen tcell.Screen) {
 	ml.lastScreen = screen
 	overlayVisible := ml.chat != nil && ml.chat.hasPopupOverlay()
 	if ml.cfg.InlineImages.Enabled && ml.useKitty {
@@ -328,9 +328,9 @@ func (ml *messagesList) scanAndDrawEmotes(screen tcell.Screen) {
 				})
 			}
 
-			// SetRect is needed for GetInnerRect used inside imageItem.Draw
+			// SetRect is needed for GetInnerRect used inside imageItem.View.
 			item.SetRect(j, i, inlineEmoteWidth, 1)
-			item.Draw(screen)
+			item.View(screen)
 
 			// Custom emoji placeholders always occupy a fixed 2-cell slot. Stepping
 			// by width instead of collapsing the full URL run preserves adjacent

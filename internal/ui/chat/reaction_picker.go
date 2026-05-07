@@ -142,7 +142,7 @@ func (rp *reactionPicker) close() tview.Cmd {
 	return tview.SetFocus(rp.messagesList)
 }
 
-func (rp *reactionPicker) Draw(screen tcell.Screen) {
+func (rp *reactionPicker) View(screen tcell.Screen) {
 	if rp.cfg.InlineImages.Enabled && rp.useKitty {
 		rp.updateCellDimensions(screen)
 	}
@@ -309,7 +309,7 @@ type reactionPickerRowItem struct {
 
 func (i *reactionPickerRowItem) Height(width int) int { return 1 }
 
-func (i *reactionPickerRowItem) Draw(screen tcell.Screen) {
+func (i *reactionPickerRowItem) View(screen tcell.Screen) {
 	x, y, w, h := i.InnerRect()
 	if w <= 0 || h <= 0 {
 		return
@@ -321,7 +321,7 @@ func (i *reactionPickerRowItem) Draw(screen tcell.Screen) {
 	if i.preview != nil {
 		i.preview.drawnThisFrame = true
 		i.preview.SetRect(x, y, inlineEmoteWidth, 1)
-		i.preview.Draw(screen)
+		i.preview.View(screen)
 		if i.useKitty {
 			for offset := 1; offset < inlineEmoteWidth && x+offset < x+w; offset++ {
 				screen.SetContent(x+offset, y, ' ', nil, i.style)

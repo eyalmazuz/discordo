@@ -63,6 +63,3 @@ func (ki *kittyImage) View(screen tcell.Screen) {
 		_ = image.PlaceKitty(tty, ki.kittyID, w, h)
 	}
 }
-func (ki *kittyImage) Draw(screen tcell.Screen) {
-	// TEA/tview pattern: View handles layout/state, Draw handles the rendering.
-}
