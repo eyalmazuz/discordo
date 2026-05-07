@@ -17,6 +17,9 @@ import (
 )
 
 type dmNode struct{}
+type dmAlertRef struct {
+	channelID discord.ChannelID
+}
 
 type guildsTree struct {
 	*tview.TreeView
@@ -30,6 +33,10 @@ type guildsTree struct {
 	guildNodeByID   map[discord.GuildID]*tview.TreeNode
 	channelNodeByID map[discord.ChannelID]*tview.TreeNode
 	dmRootNode      *tview.TreeNode
+	dmAlertNodeByID map[discord.ChannelID]*tview.TreeNode
+	dmAlertOrder    []discord.ChannelID
+	dmAlertCounts   map[discord.ChannelID]int
+	dmAlertSepNode  *tview.TreeNode
 }
 
 func newGuildsTree(cfg *config.Config, chat *Model) *guildsTree {
@@ -40,6 +47,8 @@ func newGuildsTree(cfg *config.Config, chat *Model) *guildsTree {
 
 		guildNodeByID:   make(map[discord.GuildID]*tview.TreeNode),
 		channelNodeByID: make(map[discord.ChannelID]*tview.TreeNode),
+		dmAlertNodeByID: make(map[discord.ChannelID]*tview.TreeNode),
+		dmAlertCounts:   make(map[discord.ChannelID]int),
 	}
 
 	gt.Box = ui.ConfigureBox(gt.Box, &cfg.Theme)
@@ -63,6 +72,193 @@ func (gt *guildsTree) resetNodeIndex() {
 	clear(gt.guildNodeByID)
 	clear(gt.channelNodeByID)
 	gt.dmRootNode = nil
+	gt.resetDMAlertState()
+}
+
+func (gt *guildsTree) resetDMAlertState() {
+	clear(gt.dmAlertNodeByID)
+	gt.dmAlertOrder = gt.dmAlertOrder[:0]
+	clear(gt.dmAlertCounts)
+	gt.dmAlertSepNode = nil
+}
+
+func (gt *guildsTree) dmAlertLabel(channelID discord.ChannelID) string {
+	count := gt.dmAlertCounts[channelID]
+	label := "Direct Message"
+	if gt.chat != nil && gt.chat.state != nil {
+		if channel, err := gt.chat.state.Cabinet.Channel(channelID); err == nil {
+			label = ui.ChannelToString(*channel, gt.cfg.Icons, gt.chat.state)
+		}
+	}
+	if count > 1 {
+		return fmt.Sprintf("%s (%d)", label, count)
+	}
+	return label
+}
+
+func (gt *guildsTree) rebuildDMAlertSection() {
+	root := gt.GetRoot()
+	if root == nil || gt.dmRootNode == nil {
+		return
+	}
+
+	currentRef := any(nil)
+	if current := gt.GetCurrentNode(); current != nil {
+		currentRef = current.GetReference()
+	}
+
+	existing := root.GetChildren()
+	nonAlert := make([]*tview.TreeNode, 0, len(existing))
+	for _, child := range existing {
+		switch child.GetReference().(type) {
+		case dmAlertRef:
+			continue
+		default:
+			if child == gt.dmAlertSepNode {
+				continue
+			}
+			nonAlert = append(nonAlert, child)
+		}
+	}
+
+	clear(gt.dmAlertNodeByID)
+	alertNodes := make([]*tview.TreeNode, 0, len(gt.dmAlertOrder))
+	for _, channelID := range gt.dmAlertOrder {
+		count := gt.dmAlertCounts[channelID]
+		if count <= 0 {
+			continue
+		}
+		node := tview.NewTreeNode(gt.dmAlertLabel(channelID)).
+			SetReference(dmAlertRef{channelID: channelID}).
+			SetIndent(gt.cfg.Sidebar.Indents.DM)
+		gt.setNodeLineStyle(node, tcell.StyleDefault.Bold(true).Underline(true))
+		alertNodes = append(alertNodes, node)
+		gt.dmAlertNodeByID[channelID] = node
+	}
+
+	children := make([]*tview.TreeNode, 0, len(alertNodes)+len(nonAlert)+1)
+	children = append(children, alertNodes...)
+	if len(alertNodes) > 0 {
+		gt.dmAlertSepNode = tview.NewTreeNode("--------------").SetSelectable(false)
+		gt.setNodeLineStyle(gt.dmAlertSepNode, tcell.StyleDefault.Dim(true))
+		children = append(children, gt.dmAlertSepNode)
+	} else {
+		gt.dmAlertSepNode = nil
+	}
+	children = append(children, nonAlert...)
+	root.SetChildren(children)
+
+	switch ref := currentRef.(type) {
+	case dmAlertRef:
+		if node := gt.dmAlertNodeByID[ref.channelID]; node != nil {
+			gt.SetCurrentNode(node)
+		}
+	case discord.ChannelID:
+		if node := gt.channelNodeByID[ref]; node != nil {
+			gt.SetCurrentNode(node)
+		}
+	}
+}
+
+func (gt *guildsTree) setDMAlertCount(channelID discord.ChannelID, count int) {
+	if channelID == 0 || count <= 0 {
+		return
+	}
+	if _, ok := gt.dmAlertCounts[channelID]; !ok {
+		gt.dmAlertOrder = append([]discord.ChannelID{channelID}, gt.dmAlertOrder...)
+	}
+	gt.dmAlertCounts[channelID] = count
+	for i := 1; i < len(gt.dmAlertOrder); i++ {
+		if gt.dmAlertOrder[i] == channelID {
+			gt.dmAlertOrder = append([]discord.ChannelID{channelID}, append(gt.dmAlertOrder[:i], gt.dmAlertOrder[i+1:]...)...)
+			break
+		}
+	}
+	gt.rebuildDMAlertSection()
+}
+
+func (gt *guildsTree) addDMAlert(channelID discord.ChannelID) {
+	gt.setDMAlertCount(channelID, gt.dmAlertCounts[channelID]+1)
+}
+
+func (gt *guildsTree) dmUnreadCount(channelID discord.ChannelID) int {
+	if gt.chat == nil || gt.chat.state == nil {
+		return 0
+	}
+	channel, err := gt.chat.state.Cabinet.Channel(channelID)
+	if err != nil || channel.GuildID.IsValid() {
+		return 0
+	}
+	return channelUnreadCount(gt.chat.state, *channel, ningen.UnreadOpts{IncludeMutedCategories: true})
+}
+
+func (gt *guildsTree) syncDMAlert(channelID discord.ChannelID) {
+	if channelID == 0 {
+		return
+	}
+	channel, err := gt.chat.state.Cabinet.Channel(channelID)
+	if err != nil || channel.GuildID.IsValid() {
+		gt.clearDMAlert(channelID)
+		return
+	}
+	if count := gt.dmUnreadCount(channelID); count > 0 {
+		gt.setDMAlertCount(channelID, count)
+		return
+	}
+	gt.clearDMAlert(channelID)
+}
+
+func (gt *guildsTree) syncDMAlerts(channels []discord.Channel) {
+	gt.resetDMAlertState()
+	ordered := append([]discord.Channel(nil), channels...)
+	ui.SortPrivateChannels(ordered)
+	for _, channel := range ordered {
+		if channel.GuildID.IsValid() {
+			continue
+		}
+		if count := gt.dmUnreadCount(channel.ID); count > 0 {
+			gt.dmAlertOrder = append(gt.dmAlertOrder, channel.ID)
+			gt.dmAlertCounts[channel.ID] = count
+		}
+	}
+	gt.rebuildDMAlertSection()
+}
+
+func (gt *guildsTree) reorderDMChannel(channelID discord.ChannelID) {
+	if gt.dmRootNode == nil || !gt.dmRootNode.IsExpanded() {
+		return
+	}
+	children := gt.dmRootNode.GetChildren()
+	var target *tview.TreeNode
+	reordered := make([]*tview.TreeNode, 0, len(children))
+	for _, child := range children {
+		if child.GetReference() == channelID {
+			target = child
+			continue
+		}
+		reordered = append(reordered, child)
+	}
+	if target == nil {
+		return
+	}
+	gt.dmRootNode.SetChildren(append([]*tview.TreeNode{target}, reordered...))
+}
+
+func (gt *guildsTree) clearDMAlert(channelID discord.ChannelID) {
+	if _, ok := gt.dmAlertCounts[channelID]; !ok {
+		return
+	}
+	delete(gt.dmAlertCounts, channelID)
+	for i, id := range gt.dmAlertOrder {
+		if id == channelID {
+			gt.dmAlertOrder = append(gt.dmAlertOrder[:i], gt.dmAlertOrder[i+1:]...)
+			break
+		}
+	}
+	if channel, err := gt.chat.state.Cabinet.Channel(channelID); err == nil {
+		gt.updateChannelNodeText(*channel)
+	}
+	gt.rebuildDMAlertSection()
 }
 
 func (gt *guildsTree) createFolderNode(folder gateway.GuildFolder, guildsByID map[discord.GuildID]*gateway.GuildCreateEvent) {
@@ -106,7 +302,7 @@ func (gt *guildsTree) guildNodeStyle(guildID discord.GuildID) tcell.Style {
 }
 
 func (gt *guildsTree) channelNodeStyle(channel discord.Channel) tcell.Style {
-	unread := gt.unreadStyle(gt.chat.state.ChannelIsUnread(channel.ID, ningen.UnreadOpts{IncludeMutedCategories: true}))
+	unread := gt.unreadStyle(channelUnreadIndication(gt.chat.state, channel, ningen.UnreadOpts{IncludeMutedCategories: true}))
 	if channel.Type != discord.DirectMessage || len(channel.DMRecipients) != 1 {
 		return unread
 	}
@@ -150,7 +346,9 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 	}
 
 	indents := gt.cfg.Sidebar.Indents
-	channelNode := tview.NewTreeNode(ui.ChannelToString(channel, gt.cfg.Icons, gt.chat.state)).SetReference(channel.ID)
+	channelNode := tview.NewTreeNode("").SetReference(channel.ID)
+	gt.channelNodeByID[channel.ID] = channelNode
+	gt.updateChannelNodeText(channel)
 	gt.setNodeLineStyle(channelNode, gt.channelNodeStyle(channel))
 	switch channel.Type {
 	case discord.DirectMessage:
@@ -168,6 +366,25 @@ func (gt *guildsTree) createChannelNode(node *tview.TreeNode, channel discord.Ch
 	}
 	node.AddChild(channelNode)
 	gt.channelNodeByID[channel.ID] = channelNode
+}
+
+func (gt *guildsTree) updateChannelNodeText(channel discord.Channel) {
+	node := gt.channelNodeByID[channel.ID]
+	if node == nil {
+		return
+	}
+
+	label := ui.ChannelToString(channel, gt.cfg.Icons, gt.chat.state)
+	if channel.Type == discord.DirectMessage || channel.Type == discord.GroupDM {
+		if count := gt.dmAlertCounts[channel.ID]; count > 0 {
+			label = fmt.Sprintf("%s (%d)", label, count)
+		}
+	}
+	style := tcell.StyleDefault
+	if line := node.GetLine(); len(line) > 0 {
+		style = line[0].Style
+	}
+	node.SetLine(tview.NewLine(tview.NewSegment(label, style)))
 }
 
 func (gt *guildsTree) setNodeLineStyle(node *tview.TreeNode, style tcell.Style) {
@@ -272,6 +489,16 @@ func (gt *guildsTree) onSelected(node *tview.TreeNode) tview.Cmd {
 			return nil
 		}
 
+		return gt.loadChannel(*channel)
+	case dmAlertRef:
+		channel, err := gt.chat.state.Cabinet.Channel(ref.channelID)
+		if err != nil {
+			slog.Error("failed to get channel from state", "err", err, "channel_id", ref.channelID)
+			return nil
+		}
+		if channelNode := gt.findNodeByChannelID(ref.channelID); channelNode != nil {
+			gt.SetCurrentNode(channelNode)
+		}
 		return gt.loadChannel(*channel)
 	case dmNode: // Direct messages folder
 		channels, err := gt.chat.state.PrivateChannels()
@@ -387,6 +614,8 @@ func (gt *guildsTree) findNodeByReference(reference any) *tview.TreeNode {
 		return gt.channelNodeByID[ref]
 	case dmNode:
 		return gt.dmRootNode
+	case dmAlertRef:
+		return gt.dmAlertNodeByID[ref.channelID]
 	default:
 		// Fallback keeps this helper safe for non-indexed custom references.
 		var found *tview.TreeNode

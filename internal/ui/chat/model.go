@@ -437,6 +437,9 @@ func (m *Model) Update(msg tview.Msg) tview.Cmd {
 		}
 
 		m.SetSelectedChannel(&msg.Channel)
+		if !msg.Channel.GuildID.IsValid() {
+			m.guildsTree.clearDMAlert(msg.Channel.ID)
+		}
 		m.clearTypers()
 		m.messageInput.stopTypingTimer()
 

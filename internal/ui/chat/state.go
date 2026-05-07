@@ -43,6 +43,12 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 		ClearChildren().
 		AddChild(dmNode)
 
+	privateChannels, err := m.state.Cabinet.PrivateChannels()
+	if err != nil || len(privateChannels) == 0 {
+		privateChannels = event.PrivateChannels
+	}
+	m.guildsTree.syncDMAlerts(privateChannels)
+
 	// Track guilds already in folders to find orphans.
 	// Newly joined guilds may not be synced to GuildFolders yet but always appear in guild positions.
 	guildsInFolders := make(map[discord.GuildID]bool)
@@ -110,7 +116,23 @@ func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 	}
 
 	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil {
+		if !channel.GuildID.IsValid() {
+			m.guildsTree.reorderDMChannel(message.ChannelID)
+
+			me, _ := m.state.Cabinet.Me()
+			shouldTrackUnread := !isCurrentChannel || !m.appFocused
+			if (me == nil || message.Author.ID != me.ID) && shouldTrackUnread {
+				opts := ningen.UnreadOpts{IncludeMutedCategories: true}
+				if channelUnreadIndicationByID(m.state, message.ChannelID, opts) == ningen.ChannelRead {
+					m.guildsTree.addDMAlert(message.ChannelID)
+				} else {
+					m.guildsTree.syncDMAlert(message.ChannelID)
+				}
+			}
+		}
+
 		if channelNode := m.guildsTree.findNodeByReference(message.ChannelID); channelNode != nil {
+			m.guildsTree.updateChannelNodeText(*channel)
 			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
 		}
 
@@ -254,6 +276,10 @@ func (m *Model) onReadUpdate(event *read.UpdateEvent) {
 
 	// Channel style is always updated for the target channel regardless of
 	// whether it's in a guild or DM.
+	if channel, err := m.state.Cabinet.Channel(event.ChannelID); err == nil && !channel.GuildID.IsValid() {
+		m.guildsTree.syncDMAlert(event.ChannelID)
+		m.guildsTree.updateChannelNodeText(*channel)
+	}
 	if channelNode := m.guildsTree.findNodeByReference(event.ChannelID); channelNode != nil {
 		channel, err := m.state.Cabinet.Channel(event.ChannelID)
 		if err != nil {
