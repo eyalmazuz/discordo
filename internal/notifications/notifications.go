@@ -15,6 +15,11 @@ import (
 	"github.com/diamondburned/ningen/v3"
 )
 
+var (
+	desktopNotify      = sendDesktopNotificationImpl
+	cachedProfileImage = getCachedProfileImageImpl
+)
+
 func Notify(state *ningen.State, message gateway.MessageCreateEvent, cfg *config.Config) error {
 	if !cfg.Notifications.Enabled || cfg.Status == discord.DoNotDisturbStatus {
 		return nil
@@ -60,20 +65,20 @@ func Notify(state *ningen.State, message gateway.MessageCreateEvent, cfg *config
 		hash = "default"
 	}
 
-	imagePath, err := getCachedProfileImage(hash, message.Author.AvatarURLWithType(discord.PNGImage))
+	imagePath, err := cachedProfileImage(hash, message.Author.AvatarURLWithType(discord.PNGImage))
 	if err != nil {
 		slog.Info("failed to get profile image from cache for notification", "err", err, "hash", hash)
 	}
 
 	shouldChime := cfg.Notifications.Sound.Enabled && (!cfg.Notifications.Sound.OnlyOnPing || mentions.Has(ningen.MessageMentions|ningen.MessageNotifies))
-	if err := sendDesktopNotification(title, content, imagePath, shouldChime, cfg.Notifications.Duration); err != nil {
+	if err := desktopNotify(title, content, imagePath, shouldChime, cfg.Notifications.Duration); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func getCachedProfileImage(avatarHash discord.Hash, url string) (string, error) {
+func getCachedProfileImageImpl(avatarHash discord.Hash, url string) (string, error) {
 	path := filepath.Join(consts.CacheDir(), "avatars")
 	if err := os.MkdirAll(path, os.ModePerm); err != nil {
 		return "", err

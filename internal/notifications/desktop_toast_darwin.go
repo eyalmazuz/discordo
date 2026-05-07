@@ -6,7 +6,7 @@ import (
 	gosxnotifier "github.com/deckarep/gosx-notifier"
 )
 
-func sendDesktopNotification(title string, message string, image string, playSound bool, _ int) error {
+func sendDesktopNotificationImpl(title string, message string, image string, playSound bool, _ int) error {
 	notification := gosxnotifier.NewNotification(message)
 	notification.Title = title
 	notification.ContentImage = image

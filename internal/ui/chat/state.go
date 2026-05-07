@@ -98,9 +98,30 @@ func (m *Model) onReady(event *gateway.ReadyEvent) tview.Cmd {
 
 func (m *Model) onMessageCreate(message *gateway.MessageCreateEvent) tview.Cmd {
 	selectedChannel := m.SelectedChannel()
-	if selectedChannel != nil && selectedChannel.ID == message.ChannelID {
+	isCurrentChannel := selectedChannel != nil && selectedChannel.ID == message.ChannelID
+
+	if isCurrentChannel {
 		m.removeTyper(message.Author.ID)
 		m.messagesList.addMessage(message.Message)
+
+		if m.appFocused {
+			go m.state.ReadState.MarkRead(message.ChannelID, message.ID)
+		}
+	}
+
+	if channel, err := m.state.Cabinet.Channel(message.ChannelID); err == nil {
+		if channelNode := m.guildsTree.findNodeByReference(message.ChannelID); channelNode != nil {
+			m.guildsTree.setNodeLineStyle(channelNode, m.guildsTree.channelNodeStyle(*channel))
+		}
+
+		if channel.GuildID.IsValid() {
+			if guildNode := m.guildsTree.findNodeByReference(channel.GuildID); guildNode != nil {
+				m.guildsTree.setNodeLineStyle(guildNode, m.guildsTree.guildNodeStyle(channel.GuildID))
+			}
+		}
+	}
+
+	if isCurrentChannel && m.appFocused {
 		return nil
 	}
 
