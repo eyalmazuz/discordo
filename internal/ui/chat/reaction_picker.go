@@ -36,6 +36,7 @@ type reactionPicker struct {
 	cellW          int
 	cellH          int
 	pendingDeletes []uint32
+	lastScreen     tcell.Screen
 }
 
 var _ help.KeyMap = (*reactionPicker)(nil)
@@ -135,6 +136,7 @@ func (rp *reactionPicker) close() tview.Cmd {
 		}
 	}
 	clear(rp.emoteItemByKey)
+	rp.flushKitty(rp.lastScreen)
 	rp.chat.RemoveLayer(reactionPickerLayerName)
 	if rp.messagesList != nil {
 		rp.messagesList.kittyNeedsFullClear = true
@@ -143,6 +145,7 @@ func (rp *reactionPicker) close() tview.Cmd {
 }
 
 func (rp *reactionPicker) View(screen tcell.Screen) {
+	rp.lastScreen = screen
 	if rp.cfg.InlineImages.Enabled && rp.useKitty {
 		rp.updateCellDimensions(screen)
 	}
@@ -159,6 +162,9 @@ func (rp *reactionPicker) AfterDraw(screen tcell.Screen) {
 
 func (rp *reactionPicker) flushKitty(screen tcell.Screen) {
 	if !rp.cfg.InlineImages.Enabled || !rp.useKitty {
+		return
+	}
+	if screen == nil {
 		return
 	}
 	tty, ok := screen.Tty()
